@@ -20,7 +20,7 @@ import sys
 import os
 
 try:
-    from jsonschema import validate, ValidationError, Draft7Validator
+    from jsonschema import Draft7Validator
 except ImportError:
     sys.exit("ERROR: 'jsonschema' package is required. Install with: pip install jsonschema")
 
@@ -359,7 +359,7 @@ def run_semantic_checks(data):
                     )
 
                 # Verify InputObjectQuerySequence is positive
-                seq = item.get("InputObjectQuerySequence", 0)
+                seq = item.get("InputObjectQuerySequence")
                 if isinstance(seq, int) and seq < 1:
                     issues.append(
                         f"  WARNING: OmniDataTransformItem[{k}] "
