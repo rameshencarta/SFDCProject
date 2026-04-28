@@ -1,0 +1,194 @@
+<template>
+    <!-- ==================== LOADING STATE ==================== -->
+    <template if:true={isLoading}>
+        <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
+    </template>
+
+    <!-- ==================== SCREEN 1: ENTRY ==================== -->
+    <template if:true={showEntryScreen}>
+        <div class="challenge-container">
+            <div class="challenge-card">
+                <div class="card-header">
+                    <span class="screen-label">Screen 1 &mdash; entry</span>
+                    <span class="option-badge">option1</span>
+                </div>
+                <div class="card-body">
+                    <h1 class="card-title">Verify your identity</h1>
+                    <p class="card-description">
+                        We found an existing record. Answer {totalQuestions} security
+                        questions to merge it with your new account.
+                    </p>
+
+                    <div class="info-box">
+                        <div class="info-label">Existing record</div>
+                        <div class="info-value">{existingRecordLabel}</div>
+                    </div>
+
+                    <button class="btn btn-primary btn-full" onclick={handleStartVerification}>
+                        Start verification
+                    </button>
+                    <div class="attempts-hint">{maxAttempts} attempts allowed</div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- ==================== SCREENS 2-4: SECURITY QUESTIONS ==================== -->
+    <template if:true={showQuestionScreen}>
+        <div class="challenge-container">
+            <div class="challenge-card">
+                <div class="card-header">
+                    <span class="screen-label">
+                        Screen {currentScreenNumber} &mdash; question {currentQuestionDisplay} of {totalQuestions}
+                    </span>
+                    <span class="attempt-label">attempt {currentAttempt}/{maxAttempts}</span>
+                </div>
+
+                <!-- Progress bar -->
+                <div class="progress-bar-container">
+                    <template for:each={progressSegments} for:item="seg">
+                        <div key={seg.key} class={seg.className}></div>
+                    </template>
+                </div>
+
+                <div class="card-body">
+                    <div class="question-text">{currentQuestionText}</div>
+
+                    <lightning-input
+                        type="text"
+                        label="Answer"
+                        placeholder="Enter answer"
+                        value={currentAnswer}
+                        onchange={handleAnswerChange}
+                        class="answer-input"
+                        autocomplete="off"
+                    ></lightning-input>
+
+                    <!-- Error message -->
+                    <template if:true={errorMessage}>
+                        <div class="error-banner">
+                            <lightning-icon icon-name="utility:error" size="x-small"
+                                variant="error" class="error-icon"></lightning-icon>
+                            <span>{errorMessage}</span>
+                        </div>
+                    </template>
+
+                    <div class="button-row">
+                        <button class="btn btn-secondary" onclick={handleBack}
+                            disabled={isFirstQuestion}>
+                            Back
+                        </button>
+                        <template if:false={isLastQuestion}>
+                            <button class="btn btn-primary" onclick={handleNext}
+                                disabled={isAnswerEmpty}>
+                                Next
+                            </button>
+                        </template>
+                        <template if:true={isLastQuestion}>
+                            <button class="btn btn-primary" onclick={handleSubmitAnswers}
+                                disabled={isAnswerEmpty}>
+                                {submitButtonLabel}
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- ==================== SCREEN 5: SUCCESS ==================== -->
+    <template if:true={showSuccessScreen}>
+        <div class="challenge-container">
+            <div class="challenge-card">
+                <div class="card-header">
+                    <span class="screen-label">Screen 5 &mdash; success</span>
+                    <span class="verified-badge">verified</span>
+                </div>
+                <div class="card-body">
+                    <div class="success-header">
+                        <lightning-icon icon-name="action:approval" size="small"
+                            class="success-icon"></lightning-icon>
+                        <h1 class="card-title inline-title">Identity verified</h1>
+                    </div>
+                    <p class="card-description">
+                        Records merged. Routing you based on application status&hellip;
+                    </p>
+
+                    <div class="info-box">
+                        <div class="info-row">
+                            <span class="info-key">application_completed</span>
+                            <span class="info-val">{applicationCompletedFlag}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-key">next</span>
+                            <span class="info-val">{nextRouteLabel}</span>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-success btn-full" onclick={handleContinue}>
+                        Continue to {nextRouteLabel}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- ==================== SCREEN 6: ESCALATION ==================== -->
+    <template if:true={showEscalationScreen}>
+        <div class="challenge-container">
+            <div class="challenge-card">
+                <div class="card-header">
+                    <span class="screen-label">Screen 6 &mdash; escalation</span>
+                    <span class="escalation-badge">option5</span>
+                </div>
+                <div class="card-body">
+                    <div class="escalation-header">
+                        <lightning-icon icon-name="utility:warning" size="small"
+                            variant="error" class="escalation-icon"></lightning-icon>
+                        <h1 class="card-title inline-title">Contact CFRG</h1>
+                    </div>
+                    <p class="card-description">
+                        We couldn&rsquo;t verify your identity automatically. A
+                        recruiter will help complete the merge in person or by phone.
+                    </p>
+
+                    <div class="info-box">
+                        <div class="info-row">
+                            <span class="info-key">Phone</span>
+                            <span class="info-val">1-800-856-8488</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-key">Reference</span>
+                            <span class="info-val">{alphaNumber}</span>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-secondary btn-full" onclick={handleFindRecruiter}>
+                        Find a recruiter
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- ==================== DIRECT ROUTE (no challenge needed) ==================== -->
+    <template if:true={showDirectRoute}>
+        <div class="challenge-container">
+            <div class="challenge-card">
+                <div class="card-body">
+                    <div class="success-header">
+                        <lightning-icon icon-name="action:approval" size="small"
+                            class="success-icon"></lightning-icon>
+                        <h1 class="card-title inline-title">Welcome back</h1>
+                    </div>
+                    <p class="card-description">
+                        No additional verification is required. Redirecting you&hellip;
+                    </p>
+                    <button class="btn btn-success btn-full" onclick={handleContinue}>
+                        Continue to {nextRouteLabel}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+</template>

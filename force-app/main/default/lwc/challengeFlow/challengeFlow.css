@@ -1,0 +1,269 @@
+/* ============================================================
+ * challengeFlow LWC – Styles
+ * Matches the UI mockups from challengeflowUI.pdf
+ * ============================================================ */
+
+/* Container */
+.challenge-container {
+    display: flex;
+    justify-content: center;
+    padding: 2rem 1rem;
+}
+
+/* Card */
+.challenge-card {
+    width: 100%;
+    max-width: 480px;
+    background: var(--lwc-colorBackground, #1e2130);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+    color: var(--lwc-colorTextDefault, #e8e8ec);
+}
+
+/* Card header */
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.screen-label {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.option-badge,
+.verified-badge,
+.escalation-badge {
+    font-size: 0.6875rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.option-badge {
+    background: rgba(99, 102, 241, 0.15);
+    color: #818cf8;
+}
+
+.verified-badge {
+    background: rgba(52, 211, 153, 0.15);
+    color: #6ee7b7;
+}
+
+.escalation-badge {
+    background: rgba(244, 114, 182, 0.15);
+    color: #f472b6;
+}
+
+.attempt-label {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+/* Card body */
+.card-body {
+    padding: 1.5rem;
+}
+
+/* Typography */
+.card-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 0.75rem 0;
+    line-height: 1.2;
+    color: #ffffff;
+}
+
+.inline-title {
+    display: inline;
+    margin-left: 0.5rem;
+}
+
+.card-description {
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 1.25rem;
+}
+
+/* Info box */
+.info-box {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.info-label {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 0.25rem;
+}
+
+.info-value {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0;
+}
+
+.info-key {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.info-val {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+/* Buttons */
+.btn {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.5rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    transition: all 0.15s ease;
+}
+
+.btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: #6366f1;
+    color: #ffffff;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #4f46e5;
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.btn-success {
+    background: #10b981;
+    color: #ffffff;
+}
+
+.btn-success:hover:not(:disabled) {
+    background: #059669;
+}
+
+.btn-full {
+    width: 100%;
+    text-align: center;
+}
+
+/* Progress bar */
+.progress-bar-container {
+    display: flex;
+    gap: 4px;
+    padding: 0 1.5rem;
+    margin-top: -1px;
+}
+
+.progress-segment {
+    flex: 1;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 2px;
+    transition: background 0.3s ease;
+}
+
+.progress-segment.completed {
+    background: #6366f1;
+}
+
+.progress-segment.active {
+    background: #818cf8;
+}
+
+/* Question */
+.question-text {
+    font-size: 1.0625rem;
+    font-weight: 500;
+    margin-bottom: 1rem;
+    color: #ffffff;
+}
+
+.answer-input {
+    margin-bottom: 1rem;
+}
+
+/* Button row */
+.button-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.button-row .btn {
+    flex: 1;
+    text-align: center;
+}
+
+/* Attempts hint */
+.attempts-hint {
+    text-align: center;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.45);
+    margin-top: 0.75rem;
+}
+
+/* Error banner */
+.error-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(239, 68, 68, 0.12);
+    border-left: 3px solid #ef4444;
+    padding: 0.75rem 1rem;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    color: #fca5a5;
+}
+
+.error-icon {
+    flex-shrink: 0;
+}
+
+/* Success / escalation headers */
+.success-header,
+.escalation-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.success-icon {
+    margin-right: 0.5rem;
+}
+
+.escalation-icon {
+    margin-right: 0.5rem;
+}
