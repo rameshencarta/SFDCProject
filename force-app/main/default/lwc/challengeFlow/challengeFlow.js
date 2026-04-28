@@ -3,14 +3,24 @@
  * ---------------------------------------------------------------
  * Identity-verification component for the CFRIMS Challenge Flow.
  *
- * Screens (matching the UI mockups):
- *   1. Entry         – shows existing record info, "Start verification"
- *   2-4. Questions   – one security question at a time with Back/Next/Submit
- *   5. Success       – identity verified, route by application_completed
- *   6. Escalation    – contact CFRG (option 5)
- *   Direct route     – no challenge needed, welcome back
+ * Supports all 4 verification options with automatic fallback:
+ *   Option 1 - Security Questions (SHA-1 hashed answers)
+ *   Option 2 - Personal Identifiers (DOB, phone, last name, city of birth)
+ *   Option 3 - Service Number
+ *   Option 4 - Applicant Data (given name, alpha number)
+ *   Option 5 - Escalation to CFRG (when all options exhausted)
+ *
+ * Screens:
+ *   entry      - shows existing record, current method, "Start verification"
+ *   option1    - one security question at a time with progress bar
+ *   option2    - personal identifiers form
+ *   option3    - service number input
+ *   option4    - applicant data form (given name + alpha number)
+ *   success    - identity verified, route by application_completed
+ *   escalation - contact CFRG
+ *   direct     - no challenge needed, welcome back
  */
-import { LightningElement, api, track } from "lwc";
+import { LightningElement, api } from "lwc";
 import evaluateMergeDecision from "@salesforce/apex/ChallengeFlowController.evaluateMergeDecision";
 import verifySecurityQuestions from "@salesforce/apex/ChallengeFlowController.verifySecurityQuestions";
 import verifyPersonalIdentifiers from "@salesforce/apex/ChallengeFlowController.verifyPersonalIdentifiers";
@@ -20,17 +30,27 @@ import { NavigationMixin } from "lightning/navigation";
 
 const MAX_ATTEMPTS = 3;
 
+const METHOD_LABELS = {
+    1: "Security questions",
+    2: "Personal information",
+    3: "Service number",
+    4: "Applicant details",
+};
+
 // SHA-1 helper (Web Crypto API)
 async function sha1Hex(text) {
     const encoder = new TextEncoder();
     const data = encoder.encode(text.trim().toLowerCase());
     const hashBuffer = await crypto.subtle.digest("SHA-1", data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+    return hashArray
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")
+        .toUpperCase();
 }
 
 export default class ChallengeFlow extends NavigationMixin(LightningElement) {
-    /* ── Public API ── */
+    /* -- Public API -- */
 
     /** JSON string of the CFRIMS challenge payload */
     @api challengePayload;
@@ -41,35 +61,53 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
     /** Resume application page reference */
     @api resumePageRef = "application-form";
 
-    /* ── Tracked state ── */
+    /* -- Internal state -- */
 
-    @track isLoading = true;
+    isLoading = true;
 
-    // Screens
-    @track currentScreen = "loading"; // loading | entry | question | success | escalation | direct
+    // Screen: loading | entry | option1 | option2 | option3 | option4 | success | escalation | direct
+    currentScreen = "loading";
 
     // Merge decision result from Apex
-    @track decision = {};
+    decision = {};
 
-    // Questions
-    @track questions = [];
-    @track answers = [];
-    @track currentQuestionIndex = 0;
+    // Parsed payload (cached once)
+    _parsedPayload = null;
 
-    // Attempts
-    @track currentAttempt = 1;
+    // Option cycling (mirrors React availableOptions + optionIndex)
+    availableOptions = [];
+    optionIndex = 0;
 
-    // Verification result
-    @track nextRoute = null; // dashboard | resume | escalate
-    @track applicationCompletedFlag = 0;
+    // Security questions (Option 1)
+    questions = [];
+    answers = [];
+    currentQuestionIndex = 0;
 
-    // Error
-    @track errorMessage = null;
+    // Option 2 fields
+    opt2Dob = "";
+    opt2Phone = "";
+    opt2LastName = "";
+    opt2CityBirth = "";
 
-    // Submitting state
-    @track isSubmitting = false;
+    // Option 3 field
+    opt3ServiceNb = "";
 
-    /* ── Lifecycle ── */
+    // Option 4 fields
+    opt4GivenName = "";
+    opt4AlphaNb = "";
+
+    // Attempts (per option)
+    currentAttempt = 1;
+
+    // Routing
+    nextRoute = null;
+    applicationCompletedFlag = 0;
+
+    // UI state
+    errorMessage = null;
+    isSubmitting = false;
+
+    /* -- Lifecycle -- */
 
     connectedCallback() {
         this.initialise();
@@ -80,19 +118,19 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
             this.isLoading = true;
 
             if (!this.challengePayload) {
-                // No payload provided; nothing to verify
                 this.currentScreen = "direct";
                 this.nextRoute = "dashboard";
                 this.isLoading = false;
                 return;
             }
 
-            // Parse payload locally to extract application_completed
+            // Cache the parsed payload
             try {
-                const parsed = JSON.parse(this.challengePayload);
-                this.applicationCompletedFlag = parsed.application_completed || 0;
-            } catch (e) {
-                // Will be caught by Apex too
+                this._parsedPayload = JSON.parse(this.challengePayload);
+                this.applicationCompletedFlag =
+                    this._parsedPayload.application_completed || 0;
+            } catch (_e) {
+                /* Apex will also validate */
             }
 
             const result = await evaluateMergeDecision({
@@ -107,7 +145,14 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
             } else if (result.showChallenge) {
                 this.questions = result.questions || [];
                 this.answers = this.questions.map(() => "");
-                this.currentScreen = "entry";
+                this.availableOptions = result.availableOptions || [];
+
+                if (this.availableOptions.length === 0) {
+                    this.currentScreen = "escalation";
+                } else {
+                    this.optionIndex = 0;
+                    this.currentScreen = "entry";
+                }
             } else {
                 this.currentScreen = "direct";
                 this.nextRoute = "dashboard";
@@ -120,13 +165,22 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
         }
     }
 
-    /* ── Computed properties ── */
+    /* -- Screen visibility getters -- */
 
     get showEntryScreen() {
         return !this.isLoading && this.currentScreen === "entry";
     }
-    get showQuestionScreen() {
-        return !this.isLoading && this.currentScreen === "question";
+    get showOption1Screen() {
+        return !this.isLoading && this.currentScreen === "option1";
+    }
+    get showOption2Screen() {
+        return !this.isLoading && this.currentScreen === "option2";
+    }
+    get showOption3Screen() {
+        return !this.isLoading && this.currentScreen === "option3";
+    }
+    get showOption4Screen() {
+        return !this.isLoading && this.currentScreen === "option4";
     }
     get showSuccessScreen() {
         return !this.isLoading && this.currentScreen === "success";
@@ -138,24 +192,91 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
         return !this.isLoading && this.currentScreen === "direct";
     }
 
-    get existingRecordLabel() {
-        return this.decision.existingRecordLabel || "";
+    /* -- Current option helpers -- */
+
+    get currentOption() {
+        return this.availableOptions[this.optionIndex] || null;
     }
 
-    get totalQuestions() {
-        return this.questions.length;
+    get currentMethodLabel() {
+        return METHOD_LABELS[this.currentOption] || "";
+    }
+
+    get currentStepDisplay() {
+        return this.optionIndex + 1;
+    }
+
+    get totalSteps() {
+        return this.availableOptions.length;
+    }
+
+    get existingRecordLabel() {
+        return this.decision.existingRecordLabel || "";
     }
 
     get maxAttempts() {
         return MAX_ATTEMPTS;
     }
 
-    get currentQuestionDisplay() {
-        return this.currentQuestionIndex + 1;
+    get alphaNumber() {
+        if (this._parsedPayload) {
+            const appData = this._parsedPayload.Applicant_data;
+            if (appData && appData.personal_info) {
+                return appData.personal_info.alpha_nb || "\u2014";
+            }
+        }
+        return "\u2014";
     }
 
-    get currentScreenNumber() {
-        return this.currentQuestionIndex + 2; // Screen 2, 3, 4 ...
+    get applicationCompletedDisplay() {
+        return this.applicationCompletedFlag;
+    }
+
+    get nextRouteLabel() {
+        if (this.nextRoute === "dashboard") return "Dashboard";
+        if (this.nextRoute === "resume") return "Resume application";
+        return "Dashboard";
+    }
+
+    /* -- Option step indicator -- */
+
+    get optionStepSegments() {
+        const segments = [];
+        for (let i = 0; i < this.availableOptions.length; i++) {
+            segments.push({
+                key: "opt-" + i,
+                className:
+                    "progress-segment" +
+                    (i < this.optionIndex
+                        ? " completed"
+                        : i === this.optionIndex
+                        ? " active"
+                        : ""),
+            });
+        }
+        return segments;
+    }
+
+    get availableMethodsList() {
+        return this.availableOptions.map((o) => ({
+            key: "method-" + o,
+            label: "Method " + o + " (" + (METHOD_LABELS[o] || "") + ")",
+            isCurrent: o === this.currentOption,
+            className:
+                o === this.currentOption
+                    ? "method-item current"
+                    : "method-item",
+        }));
+    }
+
+    /* -- Option 1 (security questions) getters -- */
+
+    get totalQuestions() {
+        return this.questions.length;
+    }
+
+    get currentQuestionDisplay() {
+        return this.currentQuestionIndex + 1;
     }
 
     get currentQuestionText() {
@@ -183,25 +304,10 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
     }
 
     get submitButtonLabel() {
-        return this.isSubmitting ? "Verifying\u2026" : "Submit";
+        return this.isSubmitting ? "Verifying\u2026" : "Verify";
     }
 
-    get nextRouteLabel() {
-        if (this.nextRoute === "dashboard") return "Dashboard";
-        if (this.nextRoute === "resume") return "Resume application";
-        return "Dashboard";
-    }
-
-    get alphaNumber() {
-        try {
-            const parsed = JSON.parse(this.challengePayload);
-            return parsed.Applicant_data?.personal_info?.alpha_nb || "—";
-        } catch (e) {
-            return "—";
-        }
-    }
-
-    get progressSegments() {
+    get questionProgressSegments() {
         const segments = [];
         for (let i = 0; i < this.totalQuestions; i++) {
             segments.push({
@@ -218,13 +324,42 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
         return segments;
     }
 
-    /* ── Event handlers ── */
+    /* -- Option 2 getters -- */
+
+    get isOpt2SubmitDisabled() {
+        return (
+            this.isSubmitting ||
+            !this.opt2Dob.trim() ||
+            !this.opt2Phone.trim() ||
+            !this.opt2LastName.trim() ||
+            !this.opt2CityBirth.trim()
+        );
+    }
+
+    /* -- Option 3 getters -- */
+
+    get isOpt3SubmitDisabled() {
+        return this.isSubmitting || !this.opt3ServiceNb.trim();
+    }
+
+    /* -- Option 4 getters -- */
+
+    get isOpt4SubmitDisabled() {
+        return (
+            this.isSubmitting ||
+            !this.opt4GivenName.trim() ||
+            !this.opt4AlphaNb.trim()
+        );
+    }
+
+    /* -- Event handlers -- */
 
     handleStartVerification() {
-        this.currentQuestionIndex = 0;
         this.errorMessage = null;
-        this.currentScreen = "question";
+        this._showCurrentOptionScreen();
     }
+
+    // --- Option 1 handlers ---
 
     handleAnswerChange(event) {
         const newAnswers = [...this.answers];
@@ -246,12 +381,11 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
         }
     }
 
-    async handleSubmitAnswers() {
+    async handleSubmitOption1() {
         this.isSubmitting = true;
         this.errorMessage = null;
 
         try {
-            // Hash each answer client-side (SHA-1, uppercase hex)
             const hashed = await Promise.all(
                 this.answers.map((a) => sha1Hex(a))
             );
@@ -262,24 +396,106 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
                 attemptNumber: this.currentAttempt,
             });
 
-            if (result.passed) {
-                this.nextRoute = result.nextRoute;
-                this.currentScreen = "success";
-            } else if (result.nextRoute === "escalate") {
-                this.currentScreen = "escalation";
-            } else {
-                this.currentAttempt++;
-                this.errorMessage = result.message;
-                // Reset to first question for retry
-                this.currentQuestionIndex = 0;
-                this.answers = this.questions.map(() => "");
-            }
+            this._handleVerificationResult(result);
         } catch (error) {
             this.errorMessage = this.extractErrorMessage(error);
         } finally {
             this.isSubmitting = false;
         }
     }
+
+    // --- Option 2 handlers ---
+
+    handleOpt2DobChange(event) {
+        this.opt2Dob = event.target.value;
+    }
+    handleOpt2PhoneChange(event) {
+        this.opt2Phone = event.target.value;
+    }
+    handleOpt2LastNameChange(event) {
+        this.opt2LastName = event.target.value;
+    }
+    handleOpt2CityBirthChange(event) {
+        this.opt2CityBirth = event.target.value;
+    }
+
+    async handleSubmitOption2() {
+        this.isSubmitting = true;
+        this.errorMessage = null;
+
+        try {
+            const result = await verifyPersonalIdentifiers({
+                payloadJson: this.challengePayload,
+                dob: this.opt2Dob,
+                phone: this.opt2Phone,
+                lastName: this.opt2LastName,
+                cityBirth: this.opt2CityBirth,
+                attemptNumber: this.currentAttempt,
+            });
+
+            this._handleVerificationResult(result);
+        } catch (error) {
+            this.errorMessage = this.extractErrorMessage(error);
+        } finally {
+            this.isSubmitting = false;
+        }
+    }
+
+    // --- Option 3 handlers ---
+
+    handleOpt3ServiceNbChange(event) {
+        this.opt3ServiceNb = event.target.value.toUpperCase();
+    }
+
+    async handleSubmitOption3() {
+        this.isSubmitting = true;
+        this.errorMessage = null;
+
+        try {
+            const result = await verifyServiceNumber({
+                payloadJson: this.challengePayload,
+                serviceNb: this.opt3ServiceNb.trim(),
+                attemptNumber: this.currentAttempt,
+            });
+
+            this._handleVerificationResult(result);
+        } catch (error) {
+            this.errorMessage = this.extractErrorMessage(error);
+        } finally {
+            this.isSubmitting = false;
+        }
+    }
+
+    // --- Option 4 handlers ---
+
+    handleOpt4GivenNameChange(event) {
+        this.opt4GivenName = event.target.value;
+    }
+    handleOpt4AlphaNbChange(event) {
+        this.opt4AlphaNb = event.target.value.toUpperCase();
+    }
+
+    async handleSubmitOption4() {
+        this.isSubmitting = true;
+        this.errorMessage = null;
+
+        try {
+            const result = await verifyApplicantData({
+                payloadJson: this.challengePayload,
+                givenName: this.opt4GivenName,
+                alphaNb: this.opt4AlphaNb,
+                attemptNumber: this.currentAttempt,
+            });
+
+            this._handleVerificationResult(result);
+        } catch (error) {
+            this.errorMessage = this.extractErrorMessage(error);
+        } finally {
+            this.isSubmitting = false;
+        }
+    }
+
+    // --- Navigation handlers ---
 
     handleContinue() {
         const pageName =
@@ -296,7 +512,6 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
     }
 
     handleFindRecruiter() {
-        // Navigate to a recruiter finder page or external URL
         this[NavigationMixin.Navigate]({
             type: "standard__webPage",
             attributes: {
@@ -305,7 +520,76 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
         });
     }
 
-    /* ── Utilities ── */
+    /* -- Private helpers -- */
+
+    /**
+     * Central handler for all verification results.
+     * Mirrors the React handleFailure() / handleSubmit() logic:
+     *   - passed -> success screen
+     *   - failed + attempts remaining -> retry current option
+     *   - failed + no attempts -> advance to next option or escalate
+     */
+    _handleVerificationResult(result) {
+        if (result.passed) {
+            this.nextRoute = result.nextRoute;
+            this.currentScreen = "success";
+        } else if (result.attemptsRemaining <= 0) {
+            this._advanceToNextOption();
+        } else {
+            this.currentAttempt++;
+            this.errorMessage = result.message;
+
+            // Reset Option 1 form for retry
+            if (this.currentOption === 1) {
+                this.currentQuestionIndex = 0;
+                this.answers = this.questions.map(() => "");
+            }
+        }
+    }
+
+    /**
+     * Move to the next available option, or escalate if none remain.
+     * Mirrors the React handleFailure() when attempts >= MAX_ATTEMPTS.
+     */
+    _advanceToNextOption() {
+        if (this.optionIndex + 1 < this.availableOptions.length) {
+            this.optionIndex++;
+            this.currentAttempt = 1;
+            this.errorMessage =
+                "Verification failed. Trying an alternate method.";
+            this._resetOptionForms();
+            this._showCurrentOptionScreen();
+        } else {
+            this.currentScreen = "escalation";
+        }
+    }
+
+    /**
+     * Set the screen to the current option's screen name.
+     */
+    _showCurrentOptionScreen() {
+        const opt = this.currentOption;
+        if (opt >= 1 && opt <= 4) {
+            this.currentScreen = "option" + opt;
+        } else {
+            this.currentScreen = "escalation";
+        }
+    }
+
+    /**
+     * Reset all option form fields for a fresh option attempt.
+     */
+    _resetOptionForms() {
+        this.currentQuestionIndex = 0;
+        this.answers = this.questions.map(() => "");
+        this.opt2Dob = "";
+        this.opt2Phone = "";
+        this.opt2LastName = "";
+        this.opt2CityBirth = "";
+        this.opt3ServiceNb = "";
+        this.opt4GivenName = "";
+        this.opt4AlphaNb = "";
+    }
 
     extractErrorMessage(error) {
         if (error && error.body && error.body.message) {

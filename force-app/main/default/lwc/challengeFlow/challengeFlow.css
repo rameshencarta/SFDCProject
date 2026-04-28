@@ -267,3 +267,91 @@
 .escalation-icon {
     margin-right: 0.5rem;
 }
+
+/* Panel header (option screens) */
+.panel-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.panel-icon {
+    flex-shrink: 0;
+}
+
+.panel-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0;
+    color: #ffffff;
+}
+
+/* Form grid (Options 2 & 4) */
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+@media (max-width: 480px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.form-field {
+    width: 100%;
+}
+
+/* Submit row (Options 2, 3, 4) */
+.submit-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1.5rem;
+}
+
+.encrypted-hint {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+/* Methods footer (entry screen) */
+.methods-footer {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.methods-label {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.4);
+    margin-bottom: 0.5rem;
+}
+
+.methods-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+}
+
+.method-item {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.method-item.current {
+    color: #ffffff;
+    font-weight: 600;
+}
+
+/* Monospace input styling hint */
+.mono-input {
+    letter-spacing: 0.1em;
+}

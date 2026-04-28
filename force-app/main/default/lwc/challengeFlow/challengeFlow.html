@@ -4,19 +4,29 @@
         <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
     </template>
 
-    <!-- ==================== SCREEN 1: ENTRY ==================== -->
+    <!-- ==================== ENTRY SCREEN ==================== -->
     <template if:true={showEntryScreen}>
         <div class="challenge-container">
             <div class="challenge-card">
                 <div class="card-header">
-                    <span class="screen-label">Screen 1 &mdash; entry</span>
-                    <span class="option-badge">option1</span>
+                    <span class="screen-label">
+                        Step {currentStepDisplay} of {totalSteps}
+                    </span>
+                    <span class="option-badge">{currentMethodLabel}</span>
                 </div>
+
+                <!-- Option step indicator -->
+                <div class="progress-bar-container">
+                    <template for:each={optionStepSegments} for:item="seg">
+                        <div key={seg.key} class={seg.className}></div>
+                    </template>
+                </div>
+
                 <div class="card-body">
-                    <h1 class="card-title">Verify your identity</h1>
+                    <h1 class="card-title">We need to confirm it's you.</h1>
                     <p class="card-description">
-                        We found an existing record. Answer {totalQuestions} security
-                        questions to merge it with your new account.
+                        Your existing record has been located. Please complete the
+                        verification below to merge it with this application.
                     </p>
 
                     <div class="info-box">
@@ -24,34 +34,63 @@
                         <div class="info-value">{existingRecordLabel}</div>
                     </div>
 
+                    <!-- Error from previous option failure -->
+                    <template if:true={errorMessage}>
+                        <div class="error-banner">
+                            <lightning-icon icon-name="utility:error" size="x-small"
+                                variant="error" class="error-icon"></lightning-icon>
+                            <span>{errorMessage}</span>
+                        </div>
+                    </template>
+
                     <button class="btn btn-primary btn-full" onclick={handleStartVerification}>
                         Start verification
                     </button>
-                    <div class="attempts-hint">{maxAttempts} attempts allowed</div>
+                    <div class="attempts-hint">{maxAttempts} attempts per method</div>
+
+                    <!-- Available methods list -->
+                    <div class="methods-footer">
+                        <div class="methods-label">Available verification methods</div>
+                        <div class="methods-list">
+                            <template for:each={availableMethodsList} for:item="m">
+                                <span key={m.key} class={m.className}>{m.label}</span>
+                            </template>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </template>
 
-    <!-- ==================== SCREENS 2-4: SECURITY QUESTIONS ==================== -->
-    <template if:true={showQuestionScreen}>
+    <!-- ==================== OPTION 1: SECURITY QUESTIONS ==================== -->
+    <template if:true={showOption1Screen}>
         <div class="challenge-container">
             <div class="challenge-card">
                 <div class="card-header">
                     <span class="screen-label">
-                        Screen {currentScreenNumber} &mdash; question {currentQuestionDisplay} of {totalQuestions}
+                        Question {currentQuestionDisplay} of {totalQuestions}
                     </span>
                     <span class="attempt-label">attempt {currentAttempt}/{maxAttempts}</span>
                 </div>
 
-                <!-- Progress bar -->
+                <!-- Question progress bar -->
                 <div class="progress-bar-container">
-                    <template for:each={progressSegments} for:item="seg">
+                    <template for:each={questionProgressSegments} for:item="seg">
                         <div key={seg.key} class={seg.className}></div>
                     </template>
                 </div>
 
                 <div class="card-body">
+                    <div class="panel-header">
+                        <lightning-icon icon-name="utility:lock" size="x-small"
+                            class="panel-icon"></lightning-icon>
+                        <h2 class="panel-title">Security questions</h2>
+                    </div>
+                    <p class="card-description">
+                        Answer the questions you set when you first registered.
+                        Answers are not case-sensitive.
+                    </p>
+
                     <div class="question-text">{currentQuestionText}</div>
 
                     <lightning-input
@@ -85,7 +124,7 @@
                             </button>
                         </template>
                         <template if:true={isLastQuestion}>
-                            <button class="btn btn-primary" onclick={handleSubmitAnswers}
+                            <button class="btn btn-primary" onclick={handleSubmitOption1}
                                 disabled={isAnswerEmpty}>
                                 {submitButtonLabel}
                             </button>
@@ -96,12 +135,216 @@
         </div>
     </template>
 
-    <!-- ==================== SCREEN 5: SUCCESS ==================== -->
+    <!-- ==================== OPTION 2: PERSONAL IDENTIFIERS ==================== -->
+    <template if:true={showOption2Screen}>
+        <div class="challenge-container">
+            <div class="challenge-card">
+                <div class="card-header">
+                    <span class="screen-label">
+                        Step {currentStepDisplay} of {totalSteps} &mdash; Personal information
+                    </span>
+                    <span class="attempt-label">attempt {currentAttempt}/{maxAttempts}</span>
+                </div>
+
+                <div class="progress-bar-container">
+                    <template for:each={optionStepSegments} for:item="seg">
+                        <div key={seg.key} class={seg.className}></div>
+                    </template>
+                </div>
+
+                <div class="card-body">
+                    <div class="panel-header">
+                        <lightning-icon icon-name="utility:identity" size="x-small"
+                            class="panel-icon"></lightning-icon>
+                        <h2 class="panel-title">Personal information</h2>
+                    </div>
+                    <p class="card-description">
+                        Enter the information exactly as it appears on your
+                        government-issued documents.
+                    </p>
+
+                    <!-- Error message -->
+                    <template if:true={errorMessage}>
+                        <div class="error-banner">
+                            <lightning-icon icon-name="utility:error" size="x-small"
+                                variant="error" class="error-icon"></lightning-icon>
+                            <span>{errorMessage}</span>
+                        </div>
+                    </template>
+
+                    <div class="form-grid">
+                        <lightning-input
+                            type="date"
+                            label="Date of birth"
+                            value={opt2Dob}
+                            onchange={handleOpt2DobChange}
+                            class="form-field"
+                        ></lightning-input>
+                        <lightning-input
+                            type="tel"
+                            label="Phone number"
+                            placeholder="(###) ###-####"
+                            value={opt2Phone}
+                            onchange={handleOpt2PhoneChange}
+                            class="form-field"
+                        ></lightning-input>
+                        <lightning-input
+                            type="text"
+                            label="Last name"
+                            value={opt2LastName}
+                            onchange={handleOpt2LastNameChange}
+                            class="form-field"
+                        ></lightning-input>
+                        <lightning-input
+                            type="text"
+                            label="City of birth"
+                            value={opt2CityBirth}
+                            onchange={handleOpt2CityBirthChange}
+                            class="form-field"
+                        ></lightning-input>
+                    </div>
+
+                    <div class="submit-row">
+                        <span class="encrypted-hint">Encrypted submission</span>
+                        <button class="btn btn-primary" onclick={handleSubmitOption2}
+                            disabled={isOpt2SubmitDisabled}>
+                            {submitButtonLabel}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- ==================== OPTION 3: SERVICE NUMBER ==================== -->
+    <template if:true={showOption3Screen}>
+        <div class="challenge-container">
+            <div class="challenge-card">
+                <div class="card-header">
+                    <span class="screen-label">
+                        Step {currentStepDisplay} of {totalSteps} &mdash; Service number
+                    </span>
+                    <span class="attempt-label">attempt {currentAttempt}/{maxAttempts}</span>
+                </div>
+
+                <div class="progress-bar-container">
+                    <template for:each={optionStepSegments} for:item="seg">
+                        <div key={seg.key} class={seg.className}></div>
+                    </template>
+                </div>
+
+                <div class="card-body">
+                    <div class="panel-header">
+                        <lightning-icon icon-name="utility:lock" size="x-small"
+                            class="panel-icon"></lightning-icon>
+                        <h2 class="panel-title">Service number</h2>
+                    </div>
+                    <p class="card-description">
+                        Enter the service number issued during your previous service.
+                    </p>
+
+                    <!-- Error message -->
+                    <template if:true={errorMessage}>
+                        <div class="error-banner">
+                            <lightning-icon icon-name="utility:error" size="x-small"
+                                variant="error" class="error-icon"></lightning-icon>
+                            <span>{errorMessage}</span>
+                        </div>
+                    </template>
+
+                    <lightning-input
+                        type="text"
+                        label="Service number"
+                        value={opt3ServiceNb}
+                        onchange={handleOpt3ServiceNbChange}
+                        class="answer-input mono-input"
+                    ></lightning-input>
+
+                    <div class="submit-row">
+                        <span class="encrypted-hint">Encrypted submission</span>
+                        <button class="btn btn-primary" onclick={handleSubmitOption3}
+                            disabled={isOpt3SubmitDisabled}>
+                            {submitButtonLabel}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- ==================== OPTION 4: APPLICANT DATA ==================== -->
+    <template if:true={showOption4Screen}>
+        <div class="challenge-container">
+            <div class="challenge-card">
+                <div class="card-header">
+                    <span class="screen-label">
+                        Step {currentStepDisplay} of {totalSteps} &mdash; Applicant details
+                    </span>
+                    <span class="attempt-label">attempt {currentAttempt}/{maxAttempts}</span>
+                </div>
+
+                <div class="progress-bar-container">
+                    <template for:each={optionStepSegments} for:item="seg">
+                        <div key={seg.key} class={seg.className}></div>
+                    </template>
+                </div>
+
+                <div class="card-body">
+                    <div class="panel-header">
+                        <lightning-icon icon-name="utility:identity" size="x-small"
+                            class="panel-icon"></lightning-icon>
+                        <h2 class="panel-title">Applicant details</h2>
+                    </div>
+                    <p class="card-description">
+                        Enter the given name and reference number associated with
+                        your existing application.
+                    </p>
+
+                    <!-- Error message -->
+                    <template if:true={errorMessage}>
+                        <div class="error-banner">
+                            <lightning-icon icon-name="utility:error" size="x-small"
+                                variant="error" class="error-icon"></lightning-icon>
+                            <span>{errorMessage}</span>
+                        </div>
+                    </template>
+
+                    <div class="form-grid">
+                        <lightning-input
+                            type="text"
+                            label="Given name"
+                            value={opt4GivenName}
+                            onchange={handleOpt4GivenNameChange}
+                            class="form-field"
+                        ></lightning-input>
+                        <lightning-input
+                            type="text"
+                            label="Alpha number"
+                            placeholder="e.g. A123456"
+                            value={opt4AlphaNb}
+                            onchange={handleOpt4AlphaNbChange}
+                            class="form-field mono-input"
+                        ></lightning-input>
+                    </div>
+
+                    <div class="submit-row">
+                        <span class="encrypted-hint">Encrypted submission</span>
+                        <button class="btn btn-primary" onclick={handleSubmitOption4}
+                            disabled={isOpt4SubmitDisabled}>
+                            {submitButtonLabel}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- ==================== SUCCESS ==================== -->
     <template if:true={showSuccessScreen}>
         <div class="challenge-container">
             <div class="challenge-card">
                 <div class="card-header">
-                    <span class="screen-label">Screen 5 &mdash; success</span>
+                    <span class="screen-label">Verification complete</span>
                     <span class="verified-badge">verified</span>
                 </div>
                 <div class="card-body">
@@ -111,13 +354,13 @@
                         <h1 class="card-title inline-title">Identity verified</h1>
                     </div>
                     <p class="card-description">
-                        Records merged. Routing you based on application status&hellip;
+                        Records merged. Routing you based on application status.
                     </p>
 
                     <div class="info-box">
                         <div class="info-row">
                             <span class="info-key">application_completed</span>
-                            <span class="info-val">{applicationCompletedFlag}</span>
+                            <span class="info-val">{applicationCompletedDisplay}</span>
                         </div>
                         <div class="info-row">
                             <span class="info-key">next</span>
@@ -133,23 +376,24 @@
         </div>
     </template>
 
-    <!-- ==================== SCREEN 6: ESCALATION ==================== -->
+    <!-- ==================== ESCALATION ==================== -->
     <template if:true={showEscalationScreen}>
         <div class="challenge-container">
             <div class="challenge-card">
                 <div class="card-header">
-                    <span class="screen-label">Screen 6 &mdash; escalation</span>
-                    <span class="escalation-badge">option5</span>
+                    <span class="screen-label">Manual review required</span>
+                    <span class="escalation-badge">escalation</span>
                 </div>
                 <div class="card-body">
                     <div class="escalation-header">
                         <lightning-icon icon-name="utility:warning" size="small"
                             variant="error" class="escalation-icon"></lightning-icon>
-                        <h1 class="card-title inline-title">Contact CFRG</h1>
+                        <h1 class="card-title inline-title">Please contact a recruiter.</h1>
                     </div>
                     <p class="card-description">
-                        We couldn&rsquo;t verify your identity automatically. A
-                        recruiter will help complete the merge in person or by phone.
+                        We were unable to verify your identity automatically. A
+                        Canadian Forces Recruiting Group (CFRG) representative will
+                        help you complete the merge in person or by phone.
                     </p>
 
                     <div class="info-box">
@@ -182,7 +426,7 @@
                         <h1 class="card-title inline-title">Welcome back</h1>
                     </div>
                     <p class="card-description">
-                        No additional verification is required. Redirecting you&hellip;
+                        No additional verification is required. Redirecting you.
                     </p>
                     <button class="btn btn-success btn-full" onclick={handleContinue}>
                         Continue to {nextRouteLabel}
