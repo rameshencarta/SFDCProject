@@ -10,6 +10,9 @@ private class ChallengeFlowControllerTest {
     /* ============================================================
      * Test payload that mirrors the real CFRIMS JSON structure
      * ============================================================ */
+    /**
+     * Build legacy flat payload (backward-compatible).
+     */
     private static String buildTestPayload(
             Integer appCompleted, Integer requireMerge,
             Integer manualMerge, Integer mergeApproved,
@@ -49,8 +52,60 @@ private class ChallengeFlowControllerTest {
             + '}';
     }
 
+    /**
+     * Build new nested payload with challenge_options and redirect_to_cfrg.
+     */
+    private static String buildNestedPayload(
+            Integer appCompleted, Integer requireMerge,
+            Integer manualMerge, Integer mergeApproved,
+            Boolean redirectToCfrg,
+            Integer opt1, Integer opt2, Integer opt3, Integer opt4,
+            Boolean randomizeOrder) {
+
+        return '{'
+            + '"application_completed":' + appCompleted + ','
+            + '"require_merge":' + requireMerge + ','
+            + '"manual_merge_required":' + manualMerge + ','
+            + '"merge_approved":' + mergeApproved + ','
+            + '"redirect_to_cfrg":' + redirectToCfrg + ','
+            + '"challenge_options":{'
+            +   '"option1":' + opt1 + ','
+            +   '"option2":' + opt2 + ','
+            +   '"option3":' + opt3 + ','
+            +   '"option4":' + opt4 + ','
+            +   '"randomize_order":' + randomizeOrder
+            + '},'
+            + '"security_question":['
+            +   '{"question":"mother name at birth","answer":"5C4460A19A5441BD8C4B50F00669CF16150EC906"},'
+            +   '{"question":"best rap artist","answer":"1A4DE9116530E1B795C508FFCF76D8F07E4297AC"},'
+            +   '{"question":"fav pet name","answer":"460EFCFC1C3102D54A93435A76FFC675D94A53B9"}'
+            + '],'
+            + '"service_nb":null,'
+            + '"dob":"1985-05-15",'
+            + '"phone":"(963)258-4123",'
+            + '"last_name":"Aboap20251117t4",'
+            + '"city_birth":"Ottawa",'
+            + '"Applicant_data":{'
+            +   '"personal_info":{'
+            +     '"pers_GivenName":"Abakar",'
+            +     '"pers_Surname":"Aboap20251117t4",'
+            +     '"pers_DateOfBirth":"1985-05-15",'
+            +     '"alpha_nb":"A844277",'
+            +     '"pers_DateOfBirthCity":"Ottawa",'
+            +     '"pers_DateOfBirthCountry":"CAN",'
+            +     '"service_nb":null'
+            +   '},'
+            +   '"complete":"1"'
+            + '}'
+            + '}';
+    }
+
     private static String getDefaultPayload() {
         return buildTestPayload(1, 1, 0, 0, 1, 1, 0, 1);
+    }
+
+    private static String getDefaultNestedPayload() {
+        return buildNestedPayload(1, 1, 0, 0, false, 1, 1, 0, 1, true);
     }
 
     /* ============================================================
@@ -367,5 +422,103 @@ private class ChallengeFlowControllerTest {
         System.assertEquals(true, result.passed);
         System.assertEquals('resume', result.nextRoute,
             'Should route to resume when app not complete');
+    }
+
+    /* ============================================================
+     * New nested payload (challenge_options) tests
+     * ============================================================ */
+
+    @isTest
+    static void testNestedPayload_ShowChallenge() {
+        // New format: challenge_options nested, redirect_to_cfrg=false
+        String payload = getDefaultNestedPayload();
+
+        Test.startTest();
+        ChallengeFlowController.MergeDecisionResult result =
+            ChallengeFlowController.evaluateMergeDecision(payload);
+        Test.stopTest();
+
+        System.assertEquals(true, result.showChallenge,
+            'Should show challenge with nested options');
+        System.assertEquals(false, result.noMergeNeeded);
+        System.assertEquals(false, result.redirectToCfrg);
+        System.assert(result.availableOptions.contains(1), 'Option 1 from nested');
+        System.assert(result.availableOptions.contains(2), 'Option 2 from nested');
+        System.assert(!result.availableOptions.contains(3),
+            'Option 3 should NOT be available (service_nb is null)');
+        System.assert(result.availableOptions.contains(4), 'Option 4 from nested');
+        System.assertEquals(true, result.randomizeOrder, 'randomizeOrder should be true');
+    }
+
+    @isTest
+    static void testNestedPayload_RedirectToCfrg() {
+        // redirect_to_cfrg=true -> should immediately go to escalation
+        String payload = buildNestedPayload(1, 1, 0, 0, true, 1, 1, 0, 1, false);
+
+        Test.startTest();
+        ChallengeFlowController.MergeDecisionResult result =
+            ChallengeFlowController.evaluateMergeDecision(payload);
+        Test.stopTest();
+
+        System.assertEquals(false, result.showChallenge,
+            'Should NOT show challenge when redirect_to_cfrg=true');
+        System.assertEquals(false, result.noMergeNeeded);
+        System.assertEquals(true, result.redirectToCfrg,
+            'redirectToCfrg should be true');
+    }
+
+    @isTest
+    static void testNestedPayload_RandomizeOrder() {
+        // With randomize_order=true and 3 available options, verify shuffle runs.
+        // We can only test that the result still contains the same options
+        // (not the specific order, since shuffle is random).
+        String payload = getDefaultNestedPayload();
+
+        Test.startTest();
+        ChallengeFlowController.MergeDecisionResult result =
+            ChallengeFlowController.evaluateMergeDecision(payload);
+        Test.stopTest();
+
+        System.assertEquals(3, result.availableOptions.size(),
+            'Should have 3 available options');
+        System.assert(result.availableOptions.contains(1), 'Should contain option 1');
+        System.assert(result.availableOptions.contains(2), 'Should contain option 2');
+        System.assert(result.availableOptions.contains(4), 'Should contain option 4');
+    }
+
+    @isTest
+    static void testNestedPayload_VerifySecurityQuestions() {
+        // Verify that verification still works with nested payload format
+        String payload = getDefaultNestedPayload();
+        String answersJson = '["5C4460A19A5441BD8C4B50F00669CF16150EC906",'
+            + '"1A4DE9116530E1B795C508FFCF76D8F07E4297AC",'
+            + '"460EFCFC1C3102D54A93435A76FFC675D94A53B9"]';
+
+        Test.startTest();
+        ChallengeFlowController.VerificationResult result =
+            ChallengeFlowController.verifySecurityQuestions(payload, answersJson, 1);
+        Test.stopTest();
+
+        System.assertEquals(true, result.passed,
+            'Should pass with correct hashes even with nested payload');
+        System.assertEquals('dashboard', result.nextRoute);
+    }
+
+    @isTest
+    static void testNestedPayload_NoRandomize() {
+        // randomize_order=false -> options should be in natural order 1,2,4
+        String payload = buildNestedPayload(1, 1, 0, 0, false, 1, 1, 0, 1, false);
+
+        Test.startTest();
+        ChallengeFlowController.MergeDecisionResult result =
+            ChallengeFlowController.evaluateMergeDecision(payload);
+        Test.stopTest();
+
+        System.assertEquals(false, result.randomizeOrder);
+        System.assertEquals(3, result.availableOptions.size());
+        // Without randomize, order should be deterministic: 1, 2, 4
+        System.assertEquals(1, result.availableOptions[0]);
+        System.assertEquals(2, result.availableOptions[1]);
+        System.assertEquals(4, result.availableOptions[2]);
     }
 }

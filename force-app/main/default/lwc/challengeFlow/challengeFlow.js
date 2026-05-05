@@ -139,7 +139,9 @@ export default class ChallengeFlow extends NavigationMixin(LightningElement) {
 
             this.decision = result;
 
-            if (result.noMergeNeeded) {
+            if (result.redirectToCfrg) {
+                this.currentScreen = "escalation";
+            } else if (result.noMergeNeeded) {
                 this.currentScreen = "direct";
                 this.nextRoute = result.directRoute;
             } else if (result.showChallenge) {

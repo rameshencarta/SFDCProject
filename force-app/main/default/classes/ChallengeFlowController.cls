@@ -37,6 +37,9 @@ public with sharing class ChallengeFlowController {
         @AuraEnabled public Integer require_merge;
         @AuraEnabled public Integer manual_merge_required;
         @AuraEnabled public Integer merge_approved;
+        @AuraEnabled public Boolean redirect_to_cfrg;
+        @AuraEnabled public ChallengeOptions challenge_options;
+        // Legacy flat fields (backward-compatible)
         @AuraEnabled public Integer option1;
         @AuraEnabled public Integer option2;
         @AuraEnabled public Integer option3;
@@ -48,6 +51,45 @@ public with sharing class ChallengeFlowController {
         @AuraEnabled public String  last_name;
         @AuraEnabled public String  city_birth;
         @AuraEnabled public ApplicantData Applicant_data;
+
+        /**
+         * Resolve option flags from either nested challenge_options or
+         * legacy flat fields for backward compatibility.
+         */
+        public Integer getOption1() {
+            return (challenge_options != null && challenge_options.option1 != null)
+                ? challenge_options.option1 : option1;
+        }
+        public Integer getOption2() {
+            return (challenge_options != null && challenge_options.option2 != null)
+                ? challenge_options.option2 : option2;
+        }
+        public Integer getOption3() {
+            return (challenge_options != null && challenge_options.option3 != null)
+                ? challenge_options.option3 : option3;
+        }
+        public Integer getOption4() {
+            return (challenge_options != null && challenge_options.option4 != null)
+                ? challenge_options.option4 : option4;
+        }
+        public Boolean getRandomizeOrder() {
+            return (challenge_options != null && challenge_options.randomize_order != null)
+                ? challenge_options.randomize_order : false;
+        }
+        public Boolean getRedirectToCfrg() {
+            return (redirect_to_cfrg != null) ? redirect_to_cfrg : false;
+        }
+    }
+
+    /**
+     * Nested challenge options object (new payload format).
+     */
+    public class ChallengeOptions {
+        @AuraEnabled public Integer option1;
+        @AuraEnabled public Integer option2;
+        @AuraEnabled public Integer option3;
+        @AuraEnabled public Integer option4;
+        @AuraEnabled public Boolean randomize_order;
     }
 
     public class SecurityQuestion {
@@ -91,10 +133,12 @@ public with sharing class ChallengeFlowController {
     public class MergeDecisionResult {
         @AuraEnabled public Boolean showChallenge;       // true  = present challenge flow
         @AuraEnabled public Boolean noMergeNeeded;       // true  = skip challenge, route directly
+        @AuraEnabled public Boolean redirectToCfrg;      // true  = skip challenge, go to CFRG
         @AuraEnabled public String  directRoute;         // 'dashboard' | 'resume' | null
         @AuraEnabled public String  existingRecordLabel; // e.g. "Aboap20251117t4 · A844277"
         @AuraEnabled public List<QuestionDisplay> questions; // sanitised questions (no answers)
         @AuraEnabled public List<Integer> availableOptions;
+        @AuraEnabled public Boolean randomizeOrder;      // true = shuffle option order
     }
 
     /**
@@ -161,23 +205,38 @@ public with sharing class ChallengeFlowController {
          *   merge_approved = 1 -> challenge already approved, route by application_completed
          *   merge_approved = 0 -> no merge needed yet, route by application_completed
          */
+        // Check redirect_to_cfrg first — skip all challenge logic
+        if (data.getRedirectToCfrg()) {
+            result.showChallenge = false;
+            result.noMergeNeeded = false;
+            result.redirectToCfrg = true;
+            return result;
+        }
+
         if (data.manual_merge_required == 0 && data.require_merge == 1) {
             result.showChallenge = true;
             result.noMergeNeeded = false;
+            result.redirectToCfrg = false;
+            result.randomizeOrder = data.getRandomizeOrder();
 
-            // Build available options list
+            // Build available options list using resolved getters
             result.availableOptions = new List<Integer>();
-            if (data.option1 == 1 && data.security_question != null && !data.security_question.isEmpty()) {
+            if (data.getOption1() == 1 && data.security_question != null && !data.security_question.isEmpty()) {
                 result.availableOptions.add(1);
             }
-            if (data.option2 == 1) {
+            if (data.getOption2() == 1) {
                 result.availableOptions.add(2);
             }
-            if (data.option3 == 1 && String.isNotBlank(data.service_nb)) {
+            if (data.getOption3() == 1 && String.isNotBlank(data.service_nb)) {
                 result.availableOptions.add(3);
             }
-            if (data.option4 == 1) {
+            if (data.getOption4() == 1) {
                 result.availableOptions.add(4);
+            }
+
+            // Randomize option order if requested
+            if (result.randomizeOrder && result.availableOptions.size() > 1) {
+                shuffleList(result.availableOptions);
             }
 
             // Build sanitised question list (no answers sent to client)
@@ -192,6 +251,7 @@ public with sharing class ChallengeFlowController {
         } else {
             result.showChallenge = false;
             result.noMergeNeeded = true;
+            result.redirectToCfrg = false;
             result.directRoute = (data.application_completed == 1) ? 'dashboard' : 'resume';
         }
 
@@ -396,5 +456,18 @@ public with sharing class ChallengeFlowController {
     private static String normalizePhone(String phone) {
         if (phone == null) return null;
         return phone.replaceAll('[^0-9]', '');
+    }
+
+    /**
+     * Fisher-Yates shuffle for randomizing option order.
+     */
+    private static void shuffleList(List<Integer> items) {
+        Integer n = items.size();
+        for (Integer i = n - 1; i > 0; i--) {
+            Integer j = (Integer) Math.floor(Math.random() * (i + 1));
+            Integer tmp = items[i];
+            items[i] = items[j];
+            items[j] = tmp;
+        }
     }
 }
