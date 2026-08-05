@@ -689,7 +689,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
         try {
             String phone = String.isNotBlank(phoneOnFile) ? phoneOnFile : resolveApplicantPhone();
             if (String.isBlank(phone)) return;
-            String e164Phone = OAP_Cfrims2ChallengeService.toE164(phone);
+            String e164Phone = formatForVerification(phone);
             List<User> users = [
                 SELECT Id, MobilePhone FROM User WHERE Id = :UserInfo.getUserId() LIMIT 1
             ];
@@ -703,6 +703,24 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 '[syncPhoneForVerification] ' + e.getMessage());
             throw new AuraHandledException('Could not prepare phone verification.');
         }
+    }
+
+    // Salesforce validates the stored MobilePhone against its own formatting
+    // rules when registering it for SMS; a mismatch surfaces as "We cannot
+    // verify this phone number. Check its format and try again." Use the
+    // platform's own System.UserManagement.formatPhoneNumber (the API Salesforce
+    // documents for exactly this purpose) to produce the expected format, and
+    // fall back to the local E.164 conversion only if it returns nothing.
+    private static String formatForVerification(String phone) {
+        try {
+            String formatted = System.UserManagement.formatPhoneNumber('1', phone);
+            if (String.isNotBlank(formatted)) return formatted;
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN,
+                '[formatForVerification] formatPhoneNumber failed, using toE164: '
+                + e.getMessage());
+        }
+        return OAP_Cfrims2ChallengeService.toE164(phone);
     }
 
     @AuraEnabled
