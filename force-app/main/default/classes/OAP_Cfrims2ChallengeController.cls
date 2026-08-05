@@ -674,28 +674,62 @@ public with sharing class OAP_Cfrims2ChallengeController {
         }
     }
 
+    // MUST be called and awaited by the LWC as a SEPARATE Aura round-trip
+    // BEFORE requestSmsCode. System.UserManagement.init(Register)Verification-
+    // Method is treated as a callout by the platform, and Apex cannot commit
+    // DML mid-transaction, so the MobilePhone update below and that call can
+    // never share one Aura invocation ("A callout was unsuccessful because of
+    // pending uncommitted work..."). The number the SMS is actually sent to is
+    // the running user's MobilePhone — Salesforce needs it in strict E.164 to
+    // resolve the carrier, otherwise init...VerificationMethod returns
+    // "Failed to get network info". The phone is resolved server-side (the LWC
+    // only has a masked number) from the same source requestSmsCode uses.
+    @AuraEnabled
+    public static void syncPhoneForVerification(String phoneOnFile) {
+        try {
+            String phone = String.isNotBlank(phoneOnFile) ? phoneOnFile : resolveApplicantPhone();
+            if (String.isBlank(phone)) return;
+            String e164Phone = OAP_Cfrims2ChallengeService.toE164(phone);
+            List<User> users = [
+                SELECT Id, MobilePhone FROM User WHERE Id = :UserInfo.getUserId() LIMIT 1
+            ];
+            if (users.isEmpty()) return;
+            if (users[0].MobilePhone != e164Phone) {
+                users[0].MobilePhone = e164Phone;
+                update users[0];
+            }
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR,
+                '[syncPhoneForVerification] ' + e.getMessage());
+            throw new AuraHandledException('Could not prepare phone verification.');
+        }
+    }
+
     @AuraEnabled
     public static String requestSmsCode(String userEmail) {
         try {
-            CasePayload cached = OAP_Cfrims2SessionCache.getCasePayload(UserInfo.getUserId());
-            String phone = cached != null ? cached.phone : null;
-            // OAP_Cfrims2SessionCache is backed by Cache.Session, whose writes
-            // silently fall back to a transaction-local map when the org has no
-            // session cache capacity — so by this later Aura round-trip the
-            // payload (and its phone) can be gone, yielding a false "no phone on
-            // file". The SMS is actually delivered by System.UserManagement to
-            // the running user's MobilePhone (set by syncPhoneForVerification),
-            // so fall back to that number when the cached phone is unavailable.
-            if (String.isBlank(phone)) {
-                List<User> users = [
-                    SELECT MobilePhone FROM User WHERE Id = :UserInfo.getUserId() LIMIT 1
-                ];
-                if (!users.isEmpty()) phone = users[0].MobilePhone;
-            }
-            return OAP_Cfrims2ChallengeService.requestSmsCode(userEmail, phone);
+            return OAP_Cfrims2ChallengeService.requestSmsCode(userEmail, resolveApplicantPhone());
         } catch (OAP_CFRIMS_ApiClient.CFRIMS_Exception e) {
             throw new AuraHandledException('Could not send code. Please try a different option.');
         }
+    }
+
+    // Resolves the applicant's phone. OAP_Cfrims2SessionCache is backed by
+    // Cache.Session, whose writes silently fall back to a transaction-local map
+    // when the org has no session cache capacity — so by a later Aura round-trip
+    // the cached payload (and its phone) can be gone. Fall back to the running
+    // user's MobilePhone so a cache miss does not surface a false "no phone on
+    // file".
+    private static String resolveApplicantPhone() {
+        CasePayload cached = OAP_Cfrims2SessionCache.getCasePayload(UserInfo.getUserId());
+        String phone = cached != null ? cached.phone : null;
+        if (String.isBlank(phone)) {
+            List<User> users = [
+                SELECT MobilePhone FROM User WHERE Id = :UserInfo.getUserId() LIMIT 1
+            ];
+            if (!users.isEmpty()) phone = users[0].MobilePhone;
+        }
+        return phone;
     }
 
     @AuraEnabled
