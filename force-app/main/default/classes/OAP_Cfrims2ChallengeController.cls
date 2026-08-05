@@ -679,6 +679,19 @@ public with sharing class OAP_Cfrims2ChallengeController {
         try {
             CasePayload cached = OAP_Cfrims2SessionCache.getCasePayload(UserInfo.getUserId());
             String phone = cached != null ? cached.phone : null;
+            // OAP_Cfrims2SessionCache is backed by Cache.Session, whose writes
+            // silently fall back to a transaction-local map when the org has no
+            // session cache capacity — so by this later Aura round-trip the
+            // payload (and its phone) can be gone, yielding a false "no phone on
+            // file". The SMS is actually delivered by System.UserManagement to
+            // the running user's MobilePhone (set by syncPhoneForVerification),
+            // so fall back to that number when the cached phone is unavailable.
+            if (String.isBlank(phone)) {
+                List<User> users = [
+                    SELECT MobilePhone FROM User WHERE Id = :UserInfo.getUserId() LIMIT 1
+                ];
+                if (!users.isEmpty()) phone = users[0].MobilePhone;
+            }
             return OAP_Cfrims2ChallengeService.requestSmsCode(userEmail, phone);
         } catch (OAP_CFRIMS_ApiClient.CFRIMS_Exception e) {
             throw new AuraHandledException('Could not send code. Please try a different option.');
