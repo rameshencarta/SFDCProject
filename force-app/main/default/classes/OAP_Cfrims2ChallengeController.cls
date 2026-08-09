@@ -157,28 +157,35 @@ public with sharing class OAP_Cfrims2ChallengeController {
             Boolean isSynthesised = false;
 
             if (payload == null) {
-                // If we skipped handshake (stored token path), rawBody is null.
-                // Determine payload from stored Account fields instead of calling CFRIMS.
-                if (String.isNotBlank(handshake.get('accessToken'))
-                    && handshake.get('rawBody') == null) {
-                    // Use synthesised payload — applicant has a stored session
-                    // so they have been through handshake before (no merge needed)
+                // v25 fix (RESTORED — Aug 2026): a prior version of this file had
+                // regressed to the pre-v25 bug where a reused stored token skipped
+                // checkMergeState entirely and synthesised "no merge needed" — on
+                // the assumption that having handshaken once before meant merge
+                // status was permanently resolved. That assumption is false:
+                // CFRIMS's merge/verification requirement can change independently
+                // of token validity, so an applicant flagged for verification AFTER
+                // their token was issued would never be asked again for as long as
+                // that token stayed valid (~30 min) — silently skipping the
+                // challenge popup. Confirmed as the cause of reported
+                // inconsistent/missing popup behavior (same applicant, different
+                // outcome depending purely on token age).
+                //
+                // Stored-token reuse now ONLY skips the handshake call itself
+                // (still the expensive/risky step — avoids re-triggering
+                // ORA-22922 and unnecessary session churn). checkMergeState
+                // always runs, using whichever handshake (fresh or reused) is
+                // available.
+                OAP_CFRIMS_ApiClient.MergeStateResponse mergeResp =
+                    OAP_CFRIMS_ApiClient.checkMergeState(handshake, userEmail);
+
+                if (mergeResp.res.getStatusCode() == 404
+                    || (mergeResp.res.getStatusCode() == 200 && String.isBlank(mergeResp.decryptedBody))) {
                     payload = synthesiseNoMergePayload();
                     isSynthesised = true;
-                    System.debug('[startSession] Using synthesised payload (stored token path)');
+                } else if (mergeResp.res.getStatusCode() != 200 || String.isBlank(mergeResp.decryptedBody)) {
+                    throw new AuraHandledException('Identity service returned an unexpected response.');
                 } else {
-                    OAP_CFRIMS_ApiClient.MergeStateResponse mergeResp =
-                        OAP_CFRIMS_ApiClient.checkMergeState(handshake, userEmail);
-
-                    if (mergeResp.res.getStatusCode() == 404
-                        || (mergeResp.res.getStatusCode() == 200 && String.isBlank(mergeResp.decryptedBody))) {
-                        payload = synthesiseNoMergePayload();
-                        isSynthesised = true;
-                    } else if (mergeResp.res.getStatusCode() != 200 || String.isBlank(mergeResp.decryptedBody)) {
-                        throw new AuraHandledException('Identity service returned an unexpected response.');
-                    } else {
-                        payload = (CasePayload) JSON.deserialize(mergeResp.decryptedBody, CasePayload.class);
-                    }
+                    payload = (CasePayload) JSON.deserialize(mergeResp.decryptedBody, CasePayload.class);
                 }
             }
 
@@ -705,22 +712,78 @@ public with sharing class OAP_Cfrims2ChallengeController {
         }
     }
 
-    // Salesforce validates the stored MobilePhone against its own formatting
-    // rules when registering it for SMS; a mismatch surfaces as "We cannot
-    // verify this phone number. Check its format and try again." Use the
-    // platform's own System.UserManagement.formatPhoneNumber (the API Salesforce
-    // documents for exactly this purpose) to produce the expected format, and
-    // fall back to the local E.164 conversion only if it returns nothing.
+    // v27 fix: formatPhoneNumber's output included a space ("+1 6478602992" —
+    // confirmed via debug log on a real failed verification attempt), and a
+    // subsequent System.UserManagement.initRegisterVerificationMethod call
+    // failed with a generic "Something went wrong" error immediately after.
+    // Identity Verification expects strict E.164 (no spaces/formatting), so
+    // formatPhoneNumber was dropped in favour of building the value locally,
+    // removing the space entirely rather than trying to detect and strip it
+    // after the fact.
+    //
+    // The v27 caveat above is now confirmed and addressed. toE164() is
+    // NANP-only: it returns '+1' + digits for a 10-digit number, '+' + digits
+    // for an 11-digit number starting with '1', and otherwise returns the RAW
+    // input unchanged — spaces and punctuation included. So an international
+    // number (e.g. "+44 20 7946 0958", 12 digits) fell through untouched and
+    // was stored with spaces, reproducing the very space-format failure v27
+    // set out to eliminate.
+    //
+    // Formatting is therefore done here from digits only, using the
+    // applicant's own dial code, so the result is strict E.164 for every
+    // region and can never contain whitespace.
+    //
+    // Leading zeros are stripped because most countries outside the NANP
+    // write numbers with a national trunk prefix ('0') that must be dropped
+    // before the dial code (UK 020 7946 0958 -> +44 20 7946 0958). This is a
+    // pragmatic rule, not a full libphonenumber: regions whose trunk prefix
+    // is not '0' are not special-cased.
     private static String formatForVerification(String phone) {
+        if (String.isBlank(phone)) return phone;
+
+        Boolean alreadyPrefixed = phone.trim().startsWith('+');
+
+        String digits = phone.replaceAll('[^0-9]', '').replaceFirst('^0+', '');
+        if (String.isBlank(digits)) return phone;
+
+        String dialCode = resolveApplicantDialCode();
+        return alreadyPrefixed || digits.startsWith(dialCode)
+            ? '+' + digits
+            : '+' + dialCode + digits;
+    }
+
+    // Looks up the running user's Account.OAP_Primary_Phone_Country_Code__c
+    // and parses it into a bare calling code (no leading "+") via the shared
+    // OAP_PhoneRegionUtil, since formatForVerification concatenates it with
+    // the digits itself. Falls back to '1' (Canada/NA default, matching
+    // this flow's pre-fix behavior) if the account can't be found, the field
+    // is blank, or it's set to "Other" with no embedded dial code.
+    private static String resolveApplicantDialCode() {
+        return resolveApplicantDialCode(UserInfo.getUserEmail());
+    }
+
+    // Split out from the no-arg overload above so tests can exercise the
+    // lookup/parsing logic directly — UserInfo.getUserEmail() reflects the
+    // actual running user and can't be mocked without standing up a full
+    // community/portal user in the test, which this doesn't need.
+    @TestVisible
+    private static String resolveApplicantDialCode(String applicantEmail) {
         try {
-            String formatted = System.UserManagement.formatPhoneNumber('1', phone);
-            if (String.isNotBlank(formatted)) return formatted;
+            List<Account> accts = [
+                SELECT OAP_Primary_Phone_Country_Code__c
+                FROM Account
+                WHERE PersonEmail = :applicantEmail
+                LIMIT 1
+            ];
+            if (accts.isEmpty()) return '1';
+            return OAP_PhoneRegionUtil.extractDialCodeDigitsOnly(
+                accts[0].OAP_Primary_Phone_Country_Code__c, '1'
+            );
         } catch (Exception e) {
             System.debug(LoggingLevel.WARN,
-                '[formatForVerification] formatPhoneNumber failed, using toE164: '
-                + e.getMessage());
+                '[resolveApplicantDialCode] ' + e.getMessage());
+            return '1';
         }
-        return OAP_Cfrims2ChallengeService.toE164(phone);
     }
 
     @AuraEnabled
