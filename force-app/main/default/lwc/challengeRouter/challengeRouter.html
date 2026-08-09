@@ -1,0 +1,80 @@
+<template>
+    <template if:true={isLoading}>
+        <lightning-spinner alternative-text="Loading..." size="medium"></lightning-spinner>
+    </template>
+
+    <template if:false={isLoading}>
+        <template if:true={showOptions}>
+            <c-challenge-options-list
+                available-options={ctx.availableOptions}
+                default-option={ctx.defaultOption}
+                onoptionselected={handleOptionSelected}>
+            </c-challenge-options-list>
+        </template>
+
+        <template if:true={isOption1}>
+            <c-option1-sms-code
+                user-email={resolvedEmail}
+                masked-phone={ctx.maskedPhone}
+                onsubmit={handleAnswerSubmit}
+                onswitch={handleSwitchOption}>
+            </c-option1-sms-code>
+        </template>
+
+        <template if:true={isOption2}>
+            <c-option2-security-question
+                questions={ctx.securityQuestions}
+                onsubmit={handleAnswerSubmit}
+                onswitch={handleSwitchOption}>
+            </c-option2-security-question>
+        </template>
+
+        <template if:true={isOption3}>
+            <c-option3-service-number
+                onsubmit={handleAnswerSubmit}
+                onswitch={handleSwitchOption}>
+            </c-option3-service-number>
+        </template>
+
+        <template if:true={isOption4}>
+            <c-option4-birth-details
+                onsubmit={handleAnswerSubmit}
+                onswitch={handleSwitchOption}>
+            </c-option4-birth-details>
+        </template>
+
+        <template if:true={isOption5}>
+            <c-option5-contact-cfrg
+                reference-number={ctx.referenceNumber}
+                reason={cfrgReason}>
+            </c-option5-contact-cfrg>
+        </template>
+
+        <template if:true={showError}>
+            <c-challenge-error
+                attempts-remaining={attemptsRemaining}
+                ontryagain={handleTryAgain}
+                onswitchoption={handleSwitchOption}>
+            </c-challenge-error>
+        </template>
+
+        <template if:true={successMessage}>
+            <div class="slds-box slds-theme_success slds-text-align_center" role="status">
+                <lightning-icon icon-name="utility:success"
+                                alternative-text="Success"
+                                size="small"
+                                variant="inverse"
+                                class="slds-m-right_x-small">
+                </lightning-icon>
+                <span class="slds-text-heading_small">{successMessage}</span>
+            </div>
+        </template>
+
+        <template if:true={fatalError}>
+            <div class="slds-notify slds-notify_alert slds-theme_error" role="alert">
+                <span class="slds-assistive-text">error</span>
+                <h2>{fatalError}</h2>
+            </div>
+        </template>
+    </template>
+</template>
