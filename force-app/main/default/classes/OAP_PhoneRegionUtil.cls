@@ -4,11 +4,14 @@
  * Single source of truth for parsing OAP_Primary_Phone_Country_Code__c /
  * OAP_Other_Phone_Country_Code__c picklist values into a dial code.
  *
- * These fields do NOT store a bare ISO country code — their real picklist
- * values are formatted like "Canada +1", "United Kingdom +44", ...,
- * "Other" (confirmed via Setup > Object Manager > Account > Fields, Aug
- * 2026). This class extracts the trailing "+<digits>" rather than assuming
- * any particular bare-code format.
+ * The picklist labels carry the dial code ("Canada +1", "United Kingdom
+ * +44", ..., "Other"), but the API names do not ("CAN", "UK", "OTH") --
+ * and Apex reads the API name, not the label. So the dial code is resolved
+ * from the field describe rather than by parsing the stored value, which
+ * would otherwise always miss and fall back to +1.
+ *
+ * Reading it from the describe means new picklist entries need no code
+ * change here, as long as their label ends in the dial code.
  *
  * Used by:
  *  - OAP_ApplicationFormHandler.toDialCode() — CFRIMS submission JSON
@@ -25,6 +28,8 @@ public with sharing class OAP_PhoneRegionUtil {
 
     private static final Pattern DIAL_CODE_PATTERN = Pattern.compile('(\\+\\d+)\\s*$');
 
+    private static Map<String, String> dialCodeByApiName;
+
     /**
      * Returns the dial code WITH a leading "+" (e.g. "+1"), or "" if the
      * value is blank, is "Other" (a legitimate selection with no dial code
@@ -34,12 +39,20 @@ public with sharing class OAP_PhoneRegionUtil {
         if (String.isBlank(rawPhoneCountryValue)) return '';
 
         String trimmed = rawPhoneCountryValue.trim();
+
+        // Handles a value that already carries the dial code, e.g. when the
+        // API name and label match.
         Matcher m = DIAL_CODE_PATTERN.matcher(trimmed);
         if (m.find()) {
             return m.group(1); // e.g. "Canada +1" -> "+1"
         }
 
-        if (trimmed.equalsIgnoreCase('Other')) {
+        String fromApiName = getDialCodeByApiName().get(trimmed.toUpperCase());
+        if (String.isNotBlank(fromApiName)) {
+            return fromApiName; // e.g. "IND" -> "+91"
+        }
+
+        if (trimmed.equalsIgnoreCase('Other') || trimmed.equalsIgnoreCase('OTH')) {
             // Expected case: applicant's country isn't in the standard list.
             return '';
         }
@@ -60,5 +73,29 @@ public with sharing class OAP_PhoneRegionUtil {
         String withPlus = extractDialCode(rawPhoneCountryValue);
         if (String.isBlank(withPlus)) return fallbackDigitsOnly;
         return withPlus.startsWith('+') ? withPlus.substring(1) : withPlus;
+    }
+
+    /**
+     * API name -> dial code, built from the picklist labels on
+     * OAP_Primary_Phone_Country_Code__c. Both country-code fields share the
+     * same value set, so one describe covers them.
+     */
+    private static Map<String, String> getDialCodeByApiName() {
+        if (dialCodeByApiName != null) return dialCodeByApiName;
+
+        dialCodeByApiName = new Map<String, String>();
+
+        for (Schema.PicklistEntry entry :
+                Account.OAP_Primary_Phone_Country_Code__c
+                    .getDescribe()
+                    .getPicklistValues()) {
+
+            Matcher m = DIAL_CODE_PATTERN.matcher(entry.getLabel().trim());
+            if (m.find()) {
+                dialCodeByApiName.put(entry.getValue().toUpperCase(), m.group(1));
+            }
+        }
+
+        return dialCodeByApiName;
     }
 }
