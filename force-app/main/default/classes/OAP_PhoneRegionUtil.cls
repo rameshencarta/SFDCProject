@@ -17,8 +17,9 @@
  * is consulted as a fallback.
  *
  * Used by:
- *  - OAP_ApplicationFormHandler.toDialCode() — CFRIMS submission JSON
- *    (primary_phone_region / secondary_phone_region, expects "+1" format)
+ *  - OAP_ApplicationFormHandler.toPhoneRegion() — CFRIMS submission JSON
+ *    (primary_phone_region / secondary_phone_region, which carry the API
+ *    Name, e.g. "UK")
  *  - OAP_Cfrims2ChallengeController.resolveApplicantDialCode() — SMS/MFA
  *    verification (System.UserManagement.formatPhoneNumber expects the
  *    calling code WITHOUT the leading "+", e.g. "1" not "+1")
@@ -91,6 +92,33 @@ public with sharing class OAP_PhoneRegionUtil {
         String withPlus = extractDialCode(rawPhoneCountryValue);
         if (String.isBlank(withPlus)) return fallbackDigitsOnly;
         return withPlus.startsWith('+') ? withPlus.substring(1) : withPlus;
+    }
+
+    /**
+     * The picklist API Name in the form CFRIMS expects for
+     * primary_phone_region / secondary_phone_region (e.g. "UK"), or "" when
+     * the value is blank or is not a known API Name.
+     *
+     * Validating rather than passing the field through means a label-shaped
+     * or stale value can't reach CFRIMS as a region: an unknown value is
+     * logged and sent blank, the same failure mode as an unmapped country.
+     */
+    public static String regionApiName(String rawPhoneCountryValue) {
+        if (String.isBlank(rawPhoneCountryValue)) return '';
+
+        String apiName = rawPhoneCountryValue.trim().toUpperCase();
+
+        if (getDescribedDialCodeByApiName().containsKey(apiName)
+                || DIAL_CODE_BY_API_NAME.containsKey(apiName)
+                || apiName == 'OTH') {
+            return apiName;
+        }
+
+        System.debug(LoggingLevel.WARN,
+            'OAP_PhoneRegionUtil.regionApiName: "' + rawPhoneCountryValue
+            + '" is not a picklist API Name (labels such as "United Kingdom '
+            + '+44" are not stored values) — sending a blank region.');
+        return '';
     }
 
     /**

@@ -42,6 +42,18 @@ private class OAP_PhoneRegionUtilTest {
     }
 
     @IsTest
+    static void testRegionApiName() {
+        Assert.areEqual('UK', OAP_PhoneRegionUtil.regionApiName('UK'));
+        Assert.areEqual('UK', OAP_PhoneRegionUtil.regionApiName(' uk '));
+        Assert.areEqual('OTH', OAP_PhoneRegionUtil.regionApiName('OTH'),
+            '"Other" is a legitimate region to send');
+        Assert.areEqual('', OAP_PhoneRegionUtil.regionApiName('United Kingdom +44'),
+            'A label must never be sent as a region');
+        Assert.areEqual('', OAP_PhoneRegionUtil.regionApiName('NOT_A_COUNTRY'));
+        Assert.areEqual('', OAP_PhoneRegionUtil.regionApiName(null));
+    }
+
+    @IsTest
     static void testApiNameForDialCode() {
         Assert.areEqual('UK', OAP_PhoneRegionUtil.apiNameForDialCode('+44'));
         Assert.areEqual('UK', OAP_PhoneRegionUtil.apiNameForDialCode('44'),
