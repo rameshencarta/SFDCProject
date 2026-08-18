@@ -163,7 +163,10 @@ export default class ChallengeRouter extends NavigationMixin(LightningElement) {
             const result = await submitAnswer({
                 optionCode: this.currentOption,
                 answer,
-                userEmail: this.resolvedEmail
+                // resolvedEmail is only populated from challengeContext, so fall
+                // back to the property; Apex resolves the running user's email
+                // when both are empty.
+                userEmail: this.resolvedEmail || this.userEmail || null
             });
             if (result.status === 'SUCCESS') {
                 await this.routeAfterVerification();

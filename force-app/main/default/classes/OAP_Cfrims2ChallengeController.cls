@@ -621,8 +621,18 @@ public with sharing class OAP_Cfrims2ChallengeController {
 
     @AuraEnabled
     public static ChallengeResult submitAnswer(String optionCode, Map<String, Object> answer, String userEmail) {
-        if (String.isBlank(optionCode) || String.isBlank(userEmail)) {
+        if (String.isBlank(optionCode)) {
             throw new AuraHandledException('Missing required input.');
+        }
+        // Same fallback startSession uses: the LWC's email can arrive blank
+        // (challengeContext.resolvedEmail not echoed back to the child), which
+        // used to fail the whole verification with "Missing required input."
+        // even though the server can always resolve the running user's email.
+        if (String.isBlank(userEmail)) {
+            userEmail = UserInfo.getUserEmail();
+            System.debug(LoggingLevel.WARN,
+                '[submitAnswer] blank userEmail from client — falling back to '
+                + userEmail);
         }
         try {
             // Option 1 (SMS code) is validated against the code this org sent
