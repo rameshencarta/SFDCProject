@@ -5,6 +5,17 @@
             A 6-digit code was sent to <strong>{maskedPhone}</strong>. It expires in 5 minutes.
         </p>
 
+        <template if:true={dispatchError}>
+            <div class="slds-notify slds-notify_alert slds-theme_error slds-m-bottom_medium" role="alert">
+                <span class="slds-assistive-text">error</span>
+                <span>{dispatchError}</span>
+            </div>
+        </template>
+
+        <template if:true={sending}>
+            <lightning-spinner alternative-text="Sending code" size="small"></lightning-spinner>
+        </template>
+
         <lightning-input
             type="text"
             label="Verification code"
@@ -20,13 +31,13 @@
             variant="brand"
             label="Verify code"
             onclick={handleVerify}
-            disabled={isInvalid}
+            disabled={verifyDisabled}
             stretch
             class="slds-m-bottom_x-small">
         </lightning-button>
 
         <div class="slds-grid slds-grid_align-spread slds-m-top_small">
-            <lightning-button variant="base" label="Resend code" onclick={handleResend}></lightning-button>
+            <lightning-button variant="base" label="Resend code" onclick={handleResend} disabled={sending}></lightning-button>
             <lightning-button variant="base" label="Use a different option" onclick={handleSwitch}></lightning-button>
         </div>
     </div>

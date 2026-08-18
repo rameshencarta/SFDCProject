@@ -625,7 +625,16 @@ public with sharing class OAP_Cfrims2ChallengeController {
             throw new AuraHandledException('Missing required input.');
         }
         try {
-            Boolean passed = OAP_Cfrims2ChallengeService.validate(optionCode, answer, userEmail);
+            // Option 1 (SMS code) is validated against the code this org sent
+            // via OAP_SmsOtpService — OAP_Cfrims2ChallengeService.validate()
+            // would ask Salesforce Identity Verification, which no longer
+            // issues the code. Every other option is unchanged.
+            Boolean passed = optionCode == '1'
+                ? OAP_SmsOtpService.verifyCode(
+                    answer == null || answer.get('code') == null
+                        ? null
+                        : String.valueOf(answer.get('code')))
+                : OAP_Cfrims2ChallengeService.validate(optionCode, answer, userEmail);
 
             if (passed) {
                 // CFRIMS confirmed: there is no /Applicants/challenge endpoint.
@@ -645,6 +654,11 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 return wrongAnswerResult(remaining);
             }
 
+        } catch (OAP_SmsOtpService.SmsOtpException e) {
+            // Expired / no outstanding code / attempt limit — user-safe and
+            // distinct from "wrong code, N attempts left", so it must not be
+            // folded into wrongAnswerResult().
+            throw new AuraHandledException(e.getMessage());
         } catch (OAP_CFRIMS_ApiClient.CFRIMS_Exception e) {
             throw new AuraHandledException('Validation failed: ' + e.getMessage());
         }
@@ -681,16 +695,17 @@ public with sharing class OAP_Cfrims2ChallengeController {
         }
     }
 
-    // MUST be called and awaited by the LWC as a SEPARATE Aura round-trip
-    // BEFORE requestSmsCode. System.UserManagement.init(Register)Verification-
-    // Method is treated as a callout by the platform, and Apex cannot commit
-    // DML mid-transaction, so the MobilePhone update below and that call can
-    // never share one Aura invocation ("A callout was unsuccessful because of
-    // pending uncommitted work..."). The number the SMS is actually sent to is
-    // the running user's MobilePhone — Salesforce needs it in strict E.164 to
-    // resolve the carrier, otherwise init...VerificationMethod returns
-    // "Failed to get network info". The phone is resolved server-side (the LWC
-    // only has a masked number) from the same source requestSmsCode uses.
+    // Only required by the Salesforce Identity Verification path, which sends
+    // to the running user's MobilePhone and needs it in strict E.164 to resolve
+    // the carrier. requestSmsCode no longer uses that path (see below), so the
+    // LWC no longer calls this; it is kept because the OmniScript-driven MFA
+    // configuration still relies on the user's MobilePhone being populated.
+    //
+    // Note for any future caller: this must be its own Aura round-trip if it is
+    // followed by System.UserManagement.init(Register)VerificationMethod, which
+    // the platform treats as a callout and so cannot share a transaction with
+    // the DML below ("A callout was unsuccessful because of pending uncommitted
+    // work...").
     @AuraEnabled
     public static void syncPhoneForVerification(String phoneOnFile) {
         try {
@@ -786,12 +801,31 @@ public with sharing class OAP_Cfrims2ChallengeController {
         }
     }
 
+    // Sends the Option 1 code through OAP_SmsOtpService (our own code, Google
+    // CCAI delivery) rather than OAP_Cfrims2ChallengeService.requestSmsCode,
+    // which used Salesforce Identity Verification. On PP2-TRG that platform
+    // call rejected the portal user with "We cannot verify this phone number.
+    // Check its format and try again." for a valid +1 number and never reached
+    // the OTP delivery handler, so no SMS was sent — while the OmniScript,
+    // which calls the delivery handler directly, worked. Returns the masked
+    // number for display.
     @AuraEnabled
     public static String requestSmsCode(String userEmail) {
         try {
-            return OAP_Cfrims2ChallengeService.requestSmsCode(userEmail, resolveApplicantPhone());
-        } catch (OAP_CFRIMS_ApiClient.CFRIMS_Exception e) {
-            throw new AuraHandledException('Could not send code. Please try a different option.');
+            String phone = resolveApplicantPhone();
+            if (String.isBlank(phone)) {
+                throw new OAP_SmsOtpService.SmsOtpException(
+                    'We have no phone number on file for you. Please choose a different option.');
+            }
+            return OAP_SmsOtpService.sendCode(formatForVerification(phone));
+        } catch (OAP_SmsOtpService.SmsOtpException e) {
+            // Already user-safe: cooldown, unusable number, delivery failure.
+            throw new AuraHandledException(e.getMessage());
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR, '[requestSmsCode] '
+                + e.getTypeName() + ': ' + e.getMessage());
+            throw new AuraHandledException(
+                'Could not send the code. Please try again or choose a different option.');
         }
     }
 
