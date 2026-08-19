@@ -131,7 +131,18 @@ public with sharing class OAP_SmsOtpService {
 
     // ── internals ────────────────────────────────────────────────────────────
 
+    // Tests cannot read the generated code (it is only ever hashed and sent),
+    // so they inject a known one instead of the class exposing what it sent.
+    @TestVisible private static String testCodeOverride;
+
+    // Lets tests advance the clock past the TTL / resend cooldown instead of
+    // waiting, since neither can be asserted from outside otherwise.
+    @TestVisible private static Long testClockOffsetMillis = 0;
+
     private static String generateCode() {
+        if (Test.isRunningTest() && String.isNotBlank(testCodeOverride)) {
+            return testCodeOverride;
+        }
         Integer value = Math.mod(Math.abs(Crypto.getRandomInteger()), 1000000);
         return String.valueOf(value).leftPad(6, '0');
     }
@@ -143,7 +154,8 @@ public with sharing class OAP_SmsOtpService {
     }
 
     private static Long nowMillis() {
-        return DateTime.now().getTime();
+        return DateTime.now().getTime()
+            + (testClockOffsetMillis == null ? 0 : testClockOffsetMillis);
     }
 
     private static String cacheKey() {
@@ -151,24 +163,49 @@ public with sharing class OAP_SmsOtpService {
         return KEY_PREFIX + UserInfo.getUserId();
     }
 
+    // Transaction-local mirror of the cached challenge. A session partition
+    // with no allocated capacity (and the test context, which has no session
+    // cache at all) makes the Cache.Session calls throw or silently drop the
+    // value; without this, sendCode would then leave nothing for verifyCode to
+    // find. It only survives the current transaction, so a genuinely absent
+    // session cache degrades to "request a new code" rather than a stack trace.
+    private static Map<String, String> transactionStore = new Map<String, String>();
+
     private static Challenge load() {
+        String raw = transactionStore.get(cacheKey());
+        if (String.isBlank(raw)) {
+            try {
+                Object cached = Cache.Session.getPartition(PARTITION).get(cacheKey());
+                raw = cached == null ? null : String.valueOf(cached);
+            } catch (Exception e) {
+                System.debug(LoggingLevel.WARN,
+                    '[OAP_SmsOtpService.load] ' + e.getMessage());
+            }
+        }
+        if (String.isBlank(raw)) return null;
         try {
-            Object raw = Cache.Session.getPartition(PARTITION).get(cacheKey());
-            if (raw == null) return null;
-            return (Challenge) JSON.deserialize(String.valueOf(raw), Challenge.class);
+            return (Challenge) JSON.deserialize(raw, Challenge.class);
         } catch (Exception e) {
             System.debug(LoggingLevel.WARN,
-                '[OAP_SmsOtpService.load] ' + e.getMessage());
+                '[OAP_SmsOtpService.load] undeserialisable challenge: ' + e.getMessage());
             return null;
         }
     }
 
     private static void store(Challenge challenge) {
-        Cache.Session.getPartition(PARTITION).put(
-            cacheKey(), JSON.serialize(challenge), CACHE_TTL_SECONDS);
+        String serialised = JSON.serialize(challenge);
+        transactionStore.put(cacheKey(), serialised);
+        try {
+            Cache.Session.getPartition(PARTITION).put(
+                cacheKey(), serialised, CACHE_TTL_SECONDS);
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN,
+                '[OAP_SmsOtpService.store] session cache unavailable: ' + e.getMessage());
+        }
     }
 
     private static void clear() {
+        transactionStore.remove(cacheKey());
         try {
             Cache.Session.getPartition(PARTITION).remove(cacheKey());
         } catch (Exception e) {
