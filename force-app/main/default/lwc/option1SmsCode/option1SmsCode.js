@@ -1,5 +1,4 @@
 import { LightningElement, api, track } from 'lwc';
-import syncPhoneForVerification from '@salesforce/apex/OAP_Cfrims2ChallengeController.syncPhoneForVerification';
 import requestSmsCode from '@salesforce/apex/OAP_Cfrims2ChallengeController.requestSmsCode';
 
 export default class Option1SmsCode extends LightningElement {
@@ -7,25 +6,39 @@ export default class Option1SmsCode extends LightningElement {
     @api maskedPhone;
 
     @track code = '';
+    @track dispatchError = '';
+    @track sending = false;
 
     async connectedCallback() {
         await this.dispatchCode();
     }
 
-    // syncPhoneForVerification writes the applicant's phone to the running
-    // user's MobilePhone in E.164 and MUST complete as its own Aura round-trip
-    // before requestSmsCode: System.UserManagement init(Register)Verification-
-    // Method is a callout and cannot share a transaction with the MobilePhone
-    // DML. Without it the number never reaches Salesforce in a form it can map
-    // to a carrier, so SMS dispatch fails with "Failed to get network info".
+    // requestSmsCode now generates the code server-side and sends it through
+    // the Google CCAI delivery handler, so the previous syncPhoneForVerification
+    // round-trip (which existed only to feed the phone to Salesforce Identity
+    // Verification) is no longer needed.
     async dispatchCode() {
+        this.sending = true;
+        this.dispatchError = '';
         try {
-            await syncPhoneForVerification({ phoneOnFile: null });
             const masked = await requestSmsCode({ userEmail: this.userEmail });
             if (masked) this.maskedPhone = masked;
         } catch (e) {
-            // Dispatch failure surfaces from the parent's fatalError; this child stays quiet.
+            // A silent failure here left the applicant staring at a code entry
+            // screen with no SMS and no explanation; show the server's
+            // user-safe message instead.
+            this.dispatchError = this.readError(e);
+        } finally {
+            this.sending = false;
         }
+    }
+
+    readError(error) {
+        const body = error && error.body ? error.body : error;
+        return (
+            (body && (body.message || body.pageErrors?.[0]?.message)) ||
+            'We could not send the code. Please try again or choose a different option.'
+        );
     }
 
     handleCodeChange(event) {
@@ -36,14 +49,23 @@ export default class Option1SmsCode extends LightningElement {
         return this.code.length !== 6;
     }
 
+    get canVerify() {
+        return !this.isInvalid && !this.sending;
+    }
+
+    get verifyDisabled() {
+        return !this.canVerify;
+    }
+
     handleVerify() {
-        if (this.isInvalid) return;
+        if (!this.canVerify) return;
         this.dispatchEvent(new CustomEvent('submit', {
             detail: { answer: { code: this.code } }
         }));
     }
 
     async handleResend() {
+        this.code = '';
         await this.dispatchCode();
     }
 
