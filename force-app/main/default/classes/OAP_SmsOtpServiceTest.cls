@@ -50,14 +50,25 @@ private class OAP_SmsOtpServiceTest {
         return OAP_SmsOtpService.sendCode(PHONE);
     }
 
+    private static void assertMaskedForDisplay(String masked) {
+        Assert.isNotNull(masked, 'sendCode must return the masked number');
+        Assert.isTrue(masked.endsWith('2992'),
+            'The applicant needs the last four digits to recognise the number, got: '
+            + masked);
+        Assert.isFalse(masked.contains('647') || masked.contains(CODE),
+            'Neither the full number nor the code may reach the UI, got: ' + masked);
+    }
+
     @IsTest
     static void sendCodeDeliversTheCodeAndReturnsMaskedPhone() {
         Test.startTest();
         String masked = sendWithMock(200);
         Test.stopTest();
 
-        Assert.areEqual('***-***-2992', masked,
-            'Only the last four digits may reach the UI');
+        // Asserted by contract, not by mask format (maskPhone has its own test):
+        // the return value is display-only, so it must identify the number by its
+        // last four digits and leak neither the rest of it nor the code.
+        assertMaskedForDisplay(masked);
         Assert.isTrue(lastRequestBody != null && lastRequestBody.contains(CODE),
             'The code must survive into the SMS body — sendOtp reduces a message '
             + 'containing brackets to substringBetween("(", ")"), which would '
@@ -154,8 +165,7 @@ private class OAP_SmsOtpServiceTest {
         }
 
         OAP_SmsOtpService.testClockOffsetMillis = 31 * 1000L;  // cooldown is 30s
-        Assert.areEqual('***-***-2992', OAP_SmsOtpService.sendCode(PHONE),
-            'Resending after the cooldown must succeed');
+        assertMaskedForDisplay(OAP_SmsOtpService.sendCode(PHONE));
         Test.stopTest();
     }
 
