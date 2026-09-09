@@ -1,0 +1,44 @@
+<template>
+    <div class="slds-box slds-p-around_medium">
+        <h2 class="slds-text-heading_medium slds-m-bottom_medium">{labels.title}</h2>
+
+        <lightning-input
+            type="text"
+            label={labels.serviceNumber}
+            value={serviceNumber}
+            onchange={handleServiceChange}
+            max-length="9"
+            min-length="9"
+            required
+            message-when-value-missing={labels.serviceNumberRequired}
+            class="slds-m-bottom_small">
+        </lightning-input>
+
+        <lightning-input
+            type="date"
+            label={labels.dateOfBirth}
+            value={dob}
+            onchange={handleDobChange}
+            max={today}
+            required
+            message-when-value-missing={labels.dateOfBirthRequired}
+            class="slds-m-bottom_medium">
+        </lightning-input>
+
+        <lightning-button
+            variant="brand"
+            label={labels.verify}
+            onclick={handleVerify}
+            disabled={isInvalid}
+            stretch
+            class="slds-m-bottom_x-small">
+        </lightning-button>
+
+        <lightning-button
+            variant="base"
+            label={labels.chooseAnotherMethod}
+            onclick={handleSwitch}
+            class="slds-m-top_small">
+        </lightning-button>
+    </div>
+</template>

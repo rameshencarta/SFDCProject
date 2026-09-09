@@ -1,0 +1,40 @@
+<template>
+    <div class="slds-box slds-p-around_medium">
+        <div class="slds-grid slds-grid_vertical-align-center slds-m-bottom_small">
+            <span class="slds-icon_container slds-icon-utility-warning slds-m-right_small">
+                <lightning-icon icon-name="utility:warning" size="small" variant="warning"></lightning-icon>
+            </span>
+            <h2 class="slds-text-heading_medium">{labels.title}</h2>
+        </div>
+
+        <p class="slds-text-body_regular slds-m-bottom_medium">{reasonMessage}</p>
+
+        <div class="slds-box slds-box_x-small slds-theme_shade slds-m-bottom_medium">
+            <dl class="slds-list_horizontal slds-wrap">
+                <dt class="slds-item_label slds-text-color_weak slds-truncate" title={labels.phoneNumber}>{labels.phoneNumber}</dt>
+                <dd class="slds-item_detail slds-truncate">1-800-856-8488</dd>
+
+                <dt class="slds-item_label slds-text-color_weak slds-truncate" title={labels.hoursOfOperation}>{labels.hoursOfOperation}</dt>
+                <dd class="slds-item_detail slds-truncate">Mon&ndash;Fri 8am&ndash;6pm</dd>
+
+                <template if:true={referenceNumber}>
+                    <dt class="slds-item_label slds-text-color_weak slds-truncate" title={labels.reference}>{labels.reference}</dt>
+                    <dd class="slds-item_detail slds-truncate">
+                        <code>{referenceNumber}</code>
+                    </dd>
+                </template>
+            </dl>
+        </div>
+
+        <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_medium">
+            {labels.referenceHint}
+        </p>
+
+        <lightning-button
+            variant="brand"
+            label={labels.findRecruiter}
+            onclick={handleFindRecruiter}
+            stretch>
+        </lightning-button>
+    </div>
+</template>
