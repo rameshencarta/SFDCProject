@@ -145,10 +145,11 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 verdict = (payload.application_completed == 0 && localDraft)
                     ? 'NEW_APPLICANT'
                     : 'ROUTE_BY_STATUS';
-            } else if (payload.redirect_to_cfrg == true) {
-                verdict = 'OPTION_5_REDIRECT';
             } else if (payload.manual_merge_required == 1) {
                 verdict = payload.merge_approved == 1 ? 'COMPLETE_MERGE_AUTO' : 'OPTION_5_PENDING';
+            } else if (payload.redirect_to_cfrg == true
+                    || !hasChallengeOptions(payload)) {
+                verdict = 'OPTION_5_REDIRECT';
             } else {
                 verdict = 'SHOW_OPTIONS';
             }           
@@ -815,5 +816,14 @@ public with sharing class OAP_Cfrims2ChallengeController {
         ChallengeResult r = new ChallengeResult();
         r.status          = 'ESCALATE';
         return r;
+    }
+
+    // True when at least one challenge option other than Contact CFRG can
+    // actually be presented (flags set AND the data needed to run it exists).
+    private static Boolean hasChallengeOptions(CasePayload payload) {
+        for (OAP_Cfrims2AvailableOption o : ChallengeOptionResolver.resolve(payload)) {
+            if (o != null && o.code != '5') return true;
+        }
+        return false;
     }
 }
