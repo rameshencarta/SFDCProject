@@ -86,7 +86,7 @@
         <language>en_US</language>
         <protected>false</protected>
         <shortDescription>Challenge: Opt5 GetHelp</shortDescription>
-        <value>Get help</value>
+        <value>Contact CFRG</value>
     </labels>
     <labels>
         <fullName>OAP_Challenge_Verify</fullName>
