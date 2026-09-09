@@ -136,19 +136,15 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 Boolean localDraft = latestFormIsDraftOrMissing(userEmail)
                     && !accountSubmitted;
                 if (payload.application_completed == 1 && localDraft) {
-                    // CFRIMS has a completed file but Salesforce has not caught
-                    // up (Draft form / sync in progress) — the applicant must
-                    // not start a new application; CFRG resolves the record.
+                    payload.application_completed = 0;
                     System.debug(LoggingLevel.WARN, '[startSession] CFRIMS '
                         + 'reports application_completed=1 but the local form '
                         + 'is Draft/missing for ' + userEmail
-                        + ' — routing to Contact CFRG.');
-                    verdict = 'OPTION_5_PENDING';
-                } else {
-                    verdict = (payload.application_completed == 0 && localDraft)
-                        ? 'NEW_APPLICANT'
-                        : 'ROUTE_BY_STATUS';
+                        + ' — overriding to 0 and routing to the application page.');
                 }
+                verdict = (payload.application_completed == 0 && localDraft)
+                    ? 'NEW_APPLICANT'
+                    : 'ROUTE_BY_STATUS';
             } else if (payload.redirect_to_cfrg == true) {
                 verdict = 'OPTION_5_REDIRECT';
             } else if (payload.manual_merge_required == 1) {
