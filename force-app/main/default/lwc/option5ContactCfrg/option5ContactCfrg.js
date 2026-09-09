@@ -7,6 +7,7 @@ import pendingReview from '@salesforce/label/c.OAP_Challenge_GetHelp_PendingRevi
 import attemptsExhausted from '@salesforce/label/c.OAP_Challenge_GetHelp_AttemptsExhausted';
 import phoneNumber from '@salesforce/label/c.OAP_Challenge_PhoneNumber';
 import hoursOfOperation from '@salesforce/label/c.OAP_Challenge_HoursOfOperation';
+import hoursValue from '@salesforce/label/c.OAP_Challenge_HoursOfOperation_Value';
 import reference from '@salesforce/label/c.OAP_Challenge_Reference';
 import referenceHint from '@salesforce/label/c.OAP_Challenge_GetHelp_ReferenceHint';
 import findRecruiter from '@salesforce/label/c.OAP_Challenge_FindRecruiter';
@@ -15,11 +16,12 @@ const REASON_COPY = {
     system_redirect: systemRedirect,
     pending_review: pendingReview,
     user_chose: intro,
-    attempts_exhausted: attemptsExhausted
+    attempts_exhausted: attemptsExhausted,
+    failed_attempts: attemptsExhausted
 };
 
 export default class Option5ContactCfrg extends NavigationMixin(LightningElement) {
-    labels = { title, phoneNumber, hoursOfOperation, reference, referenceHint, findRecruiter };
+    labels = { title, phoneNumber, hoursOfOperation, hoursValue, reference, referenceHint, findRecruiter };
 
     @api referenceNumber;
     @api reason;

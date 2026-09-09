@@ -29,8 +29,12 @@ export default class Option3ServiceNumber extends LightningElement {
         this.dob = event.target.value;
     }
 
+    get isDobValid() {
+        return !!this.dob && this.dob <= this.today;
+    }
+
     get isInvalid() {
-        return this.serviceNumber.length !== 9 || !this.dob;
+        return this.serviceNumber.length !== 9 || !this.isDobValid;
     }
 
     handleVerify() {

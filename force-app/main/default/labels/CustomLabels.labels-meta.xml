@@ -337,6 +337,14 @@
         <value>Sending code</value>
     </labels>
     <labels>
+        <fullName>OAP_Challenge_HoursOfOperation_Value</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: HoursOfOperation Value</shortDescription>
+        <value>Mon–Fri 8am–6pm</value>
+    </labels>
+    <labels>
         <fullName>OAP_Challenge_Sms_SendFailed</fullName>
         <categories>OAP,Challenge</categories>
         <language>en_US</language>

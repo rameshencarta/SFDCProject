@@ -169,6 +169,10 @@
         <name>OAP_Challenge_Sms_Sending</name>
     </customLabels>
     <customLabels>
+        <label>Lun.–ven. 8 h à 18 h</label>
+        <name>OAP_Challenge_HoursOfOperation_Value</name>
+    </customLabels>
+    <customLabels>
         <label>Nous n’avons pas pu envoyer le code. Veuillez réessayer ou choisir une autre option.</label>
         <name>OAP_Challenge_Sms_SendFailed</name>
     </customLabels>

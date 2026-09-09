@@ -27,8 +27,12 @@ export default class Option4BirthDetails extends LightningElement {
     handleDobChange(event)      { this.dob = event.target.value; }
     handleCityChange(event)     { this.cityOfBirth = event.target.value; }
 
+    get isDobValid() {
+        return !!this.dob && this.dob <= this.today;
+    }
+
     get isInvalid() {
-        return !this.lastName.trim() || !this.dob || !this.cityOfBirth.trim();
+        return !this.lastName.trim() || !this.isDobValid || !this.cityOfBirth.trim();
     }
 
     handleVerify() {
