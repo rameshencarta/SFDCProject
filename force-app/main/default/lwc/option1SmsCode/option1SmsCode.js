@@ -1,13 +1,38 @@
 import { LightningElement, api, track } from 'lwc';
 import requestSmsCode from '@salesforce/apex/OAP_Cfrims2ChallengeController.requestSmsCode';
+import title from '@salesforce/label/c.OAP_Challenge_Sms_Title';
+import intro from '@salesforce/label/c.OAP_Challenge_Sms_Intro';
+import codeLabel from '@salesforce/label/c.OAP_Challenge_Sms_CodeLabel';
+import codePattern from '@salesforce/label/c.OAP_Challenge_Sms_CodePattern';
+import verifyCode from '@salesforce/label/c.OAP_Challenge_Sms_VerifyCode';
+import resend from '@salesforce/label/c.OAP_Challenge_Sms_Resend';
+import sendingLabel from '@salesforce/label/c.OAP_Challenge_Sms_Sending';
+import sendFailed from '@salesforce/label/c.OAP_Challenge_Sms_SendFailed';
+import chooseAnotherMethod from '@salesforce/label/c.OAP_Challenge_ChooseAnotherMethod';
+
+const PHONE_PLACEHOLDER = '{0}';
 
 export default class Option1SmsCode extends LightningElement {
+    labels = { title, codeLabel, codePattern, verifyCode, resend, sending: sendingLabel, chooseAnotherMethod };
+
     @api userEmail;
     @api maskedPhone;
 
     @track code = '';
     @track dispatchError = '';
     @track sending = false;
+
+    // Intro copy is "... sent to {0}. ..."; the phone is rendered in its own
+    // <strong> so the sentence is split around the placeholder.
+    get introBefore() {
+        const i = intro.indexOf(PHONE_PLACEHOLDER);
+        return i < 0 ? intro : intro.slice(0, i);
+    }
+
+    get introAfter() {
+        const i = intro.indexOf(PHONE_PLACEHOLDER);
+        return i < 0 ? '' : intro.slice(i + PHONE_PLACEHOLDER.length);
+    }
 
     async connectedCallback() {
         await this.dispatchCode();
@@ -37,7 +62,7 @@ export default class Option1SmsCode extends LightningElement {
         const body = error && error.body ? error.body : error;
         return (
             (body && (body.message || body.pageErrors?.[0]?.message)) ||
-            'We could not send the code. Please try again or choose a different option.'
+            sendFailed
         );
     }
 

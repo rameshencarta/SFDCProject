@@ -4,51 +4,12 @@
  * @author Ramesh / DND
  * @date 2026-05-26
  * @group Integration Framework
- *
- * Version                     Date                          Author
- * v1                          26-May-2026                   Ramesh - Initial version
- * v2                          17-Jun-2026                   Ramesh - Renamed to OAP_Cfrims2ChallengeController
- *                                                                    Updated all references to OAP_ prefix
- * v3                          21-Jul-2026                   Ramesh - Fixed stored-token session synthesis:
- *                                                                    the reuse path was putting clientSessionId
- *                                                                    (SF_SESS_...) into 'session_key' and omitting
- *                                                                    'clientSessionId' entirely — every gatewayBase
- *                                                                    consumer of the cached map (checkMergeState,
- *                                                                    completeMerge, DataPullService) then failed
- *                                                                    with ORA-20004 "Invalid Keys or Session
- *                                                                    Mismatch". session_key/user_key/identifiers
- *                                                                    are now decoded from the stored JWT's claims.
- *                                                                    Added token expiry check (30-min exp) before
- *                                                                    reuse — expired tokens fall through to a
- *                                                                    fresh handshake instead of a guaranteed 401.
- * v4                          22-Jul-2026                   Ramesh - UK_EMAIL recovery no longer routes to
- *                                                                    NEW_APPLICANT (contradiction: ORA-00001
- *                                                                    proves the email exists in CFRIMS). CFRIMS
- *                                                                    observed returning an EMPTY default payload
- *                                                                    in this error — existing applicants were
- *                                                                    being routed to Home as new users. Empty
- *                                                                    payload now routes to CFRG review
- *                                                                    (identifier-mismatch suspected); real
- *                                                                    payloads route by status.
- *                                                                    ALSO v4: returning applicants were routed
- *                                                                    to Home on every stored-token login —
- *                                                                    applyAccountStateOverrides only recognised
- *                                                                    Alpha Number / Applicant Status (populated
- *                                                                    late, by the dashboard pull) and ignored
- *                                                                    CFRIMS_Sync_Status__pc = 'Success' (set at
- *                                                                    submit time). Now checks Sync Status, the
- *                                                                    ApplicationForm stage, and reads via a
- *                                                                    without-sharing helper (portal users lacked
- *                                                                    reliable read access to these fields).
+ 
  */
 public with sharing class OAP_Cfrims2ChallengeController {
 
     @AuraEnabled
-    public static ChallengeContext startSession(String userEmail) {
-        // Allow a blank/null userEmail — fall back to the logged-in user's email.
-        // {!CurrentUser.Email} is unreliable as an @api prop in Aura Experience
-        // Cloud sites and may arrive as null even for authenticated users.
-        // UserInfo.getUserEmail() is always authoritative on the server side.
+    public static ChallengeContext startSession(String userEmail) {       
         if (String.isBlank(userEmail)) {
             userEmail = UserInfo.getUserEmail();
         }
@@ -56,10 +17,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
             throw new AuraHandledException('Email is required.');
         }
         try {
-            // Fetch stored identifiers — reusing both prevents UK_USER_KEY constraint
-            // violations on repeat logins. Cfrims2HandshakeIdStore uses clientSessionId
-            // as its cache key: regenerating it on every call causes a cache miss which
-            // forces CFRIMS to INSERT a new user_key, hitting the unique constraint.
+           
             String userIdentifier = null;
             String clientSessionId = null;
             List<Account> accts = [
@@ -72,43 +30,18 @@ public with sharing class OAP_Cfrims2ChallengeController {
             if (!accts.isEmpty() && String.isNotBlank(accts[0].CFRIMS_User_Identifier__pc)) {
                 userIdentifier = accts[0].CFRIMS_User_Identifier__pc;
             } else {
-                // No stored identifier — generate a fresh GUID and proceed.
-                //
-                // Two possible outcomes after the callout:
-                //   • Brand-new user (no CFRIMS record yet): CFRIMS returns 404
-                //     → synthesiseNoMergePayload → NEW_APPLICANT. Safe to call.
-                //   • Existing CFRIMS user whose identifier hasn't synced back:
-                //     CFRIMS returns UK_EMAIL / UK_SF_ID constraint error but still
-                //     embeds the full CasePayload in the body. The catch block
-                //     below parses that payload and routes correctly.
-                //
-                // A pre-emptive "sync in progress" block was tried here but it
-                // over-blocked brand-new users who should go straight to the
-                // CAF application form as NEW_APPLICANT.
-                userIdentifier = 'SF-GUID-' + String.valueOf(Math.abs(Crypto.getRandomLong()));
+                               
+                userIdentifier = OAP_Utils.generateSfGuid();
             }
             clientSessionId = (!accts.isEmpty()
                     && String.isNotBlank(accts[0].CFRIMS_Client_Session_Id__pc))
                 ? accts[0].CFRIMS_Client_Session_Id__pc
-                : 'SF_SESS_' + String.valueOf(Crypto.getRandomLong());
-            // ── Skip handshake if valid session already stored (v3) ──────────────
-            // Abakar confirmed: each performHandshake creates a NEW session record
-            // in CFRIMS's event_table. Multiple logins = multiple session rows.
-            // If the Account already has a stored accessToken and user_key from
-            // a previous login, reuse them — do NOT call handshake again.
-            //
-            // v3 FIX: the synthesised map previously set
-            //     'session_key' => clientSessionId        (an SF_SESS_... value)
-            // and omitted 'clientSessionId' entirely. The REAL session_key only
-            // exists inside the JWT claims. Every gatewayBase built from the old
-            // map was rejected by CFRIMS with ORA-20004 "Invalid Keys or Session
-            // Mismatch" (TRG_VALIDATE_API_EVENT). All session values are now
-            // decoded from the token itself — the same values the original
-            // handshake response returned. Expired tokens (30-min exp) fall
-            // through to a fresh handshake.
+                : OAP_Utils.generateSessGuid();            
             String storedToken   = !accts.isEmpty() ? accts[0].CFRIMS_Access_Token__pc   : null;
             String storedUserKey = !accts.isEmpty() ? accts[0].user_key__pc              : null;
             Map<String, String> handshake = null;
+                        
+            Boolean didHandshake = false;
 
             if (String.isNotBlank(storedToken) && !isTokenExpired(storedToken)) {
                 Map<String, Object> claims = decodeJwtClaims(storedToken);
@@ -134,17 +67,17 @@ public with sharing class OAP_Cfrims2ChallengeController {
                         'rawBody'         => null
                     };
                 }
-                // claims missing session_key/user_key → handshake below
+                
             }
 
             if (handshake == null) {
                 System.debug('[startSession] No valid stored token — calling performHandshake');
                 handshake = OAP_CFRIMS_ApiClient.performHandshake(
                     userEmail, userIdentifier, clientSessionId);
+                didHandshake = true;
             }
 
-            // Keep locals aligned with whichever session is live — these are
-            // persisted to the Account below and must match the token's claims.
+            
             if (String.isNotBlank(handshake.get('userIdentifier'))) {
                 userIdentifier = handshake.get('userIdentifier');
             }
@@ -153,32 +86,38 @@ public with sharing class OAP_Cfrims2ChallengeController {
             }
             // ─────────────────────────────────────────────────────────────────
             CasePayload payload = extractMergePayloadFromHandshake(handshake.get('rawBody'));
-            // True only when CFRIMS returns 404 / empty body — user has no CFRIMS record yet.
+           
             Boolean isSynthesised = false;
 
             if (payload == null) {
-                // v25 fix (RESTORED — Aug 2026): a prior version of this file had
-                // regressed to the pre-v25 bug where a reused stored token skipped
-                // checkMergeState entirely and synthesised "no merge needed" — on
-                // the assumption that having handshaken once before meant merge
-                // status was permanently resolved. That assumption is false:
-                // CFRIMS's merge/verification requirement can change independently
-                // of token validity, so an applicant flagged for verification AFTER
-                // their token was issued would never be asked again for as long as
-                // that token stayed valid (~30 min) — silently skipping the
-                // challenge popup. Confirmed as the cause of reported
-                // inconsistent/missing popup behavior (same applicant, different
-                // outcome depending purely on token age).
-                //
-                // Stored-token reuse now ONLY skips the handshake call itself
-                // (still the expensive/risky step — avoids re-triggering
-                // ORA-22922 and unnecessary session churn). checkMergeState
-                // always runs, using whichever handshake (fresh or reused) is
-                // available.
+                               
                 OAP_CFRIMS_ApiClient.MergeStateResponse mergeResp =
                     OAP_CFRIMS_ApiClient.checkMergeState(handshake, userEmail);
+               
+                if (!didHandshake
+                    && mergeResp.res.getStatusCode() != 200
+                    && mergeResp.res.getStatusCode() != 404) {
+                    System.debug('[startSession] Merge state failed with '
+                        + mergeResp.res.getStatusCode()
+                        + ' on a reused token — fresh handshake and retrying once');
+                    handshake = OAP_CFRIMS_ApiClient.performHandshake(
+                        userEmail, userIdentifier, clientSessionId);
+                    didHandshake = true;
+                    if (String.isNotBlank(handshake.get('userIdentifier'))) {
+                        userIdentifier = handshake.get('userIdentifier');
+                    }
+                    if (String.isNotBlank(handshake.get('clientSessionId'))) {
+                        clientSessionId = handshake.get('clientSessionId');
+                    }
+                    payload = extractMergePayloadFromHandshake(handshake.get('rawBody'));
+                    if (payload == null) {
+                        mergeResp = OAP_CFRIMS_ApiClient.checkMergeState(handshake, userEmail);
+                    }
+                }
 
-                if (mergeResp.res.getStatusCode() == 404
+                if (payload != null) {
+                    // fresh handshake carried the merge payload — nothing more to do
+                } else if (mergeResp.res.getStatusCode() == 404
                     || (mergeResp.res.getStatusCode() == 200 && String.isBlank(mergeResp.decryptedBody))) {
                     payload = synthesiseNoMergePayload();
                     isSynthesised = true;
@@ -189,45 +128,53 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 }
             }
 
-            applyAccountStateOverrides(userEmail, payload);
-
-            // Inline verdict logic (replaces ChallengeRouter.decide())
+            Boolean accountSubmitted = applyAccountStateOverrides(userEmail, payload);
+           
             String verdict;
             if (payload.require_merge != 1) {
-                // Brand-new user: CFRIMS had no record (synthesised payload) and the applicant
-                // has not yet completed their application — send them straight to the CAF form.
-                verdict = (isSynthesised && payload.application_completed == 0)
+                
+                Boolean localDraft = latestFormIsDraftOrMissing(userEmail)
+                    && !accountSubmitted;
+                if (payload.application_completed == 1 && localDraft) {
+                    payload.application_completed = 0;
+                    System.debug(LoggingLevel.WARN, '[startSession] CFRIMS '
+                        + 'reports application_completed=1 but the local form '
+                        + 'is Draft/missing for ' + userEmail
+                        + ' — overriding to 0 and routing to the application page.');
+                }
+                verdict = (payload.application_completed == 0 && localDraft)
                     ? 'NEW_APPLICANT'
                     : 'ROUTE_BY_STATUS';
-            } else if (payload.redirect_to_cfrg == true) {
-                verdict = 'OPTION_5_REDIRECT';
             } else if (payload.manual_merge_required == 1) {
                 verdict = payload.merge_approved == 1 ? 'COMPLETE_MERGE_AUTO' : 'OPTION_5_PENDING';
+            } else if (payload.redirect_to_cfrg == true
+                    || !hasChallengeOptions(payload)) {
+                verdict = 'OPTION_5_REDIRECT';
             } else {
                 verdict = 'SHOW_OPTIONS';
-            }
-
-            // ── ALL callouts must complete before ANY DML ────────────────────────────
-            // OAP_Cfrims2SessionCache and OAP_ChallengeAttemptTracker both write to
-            // SObjects (DML). completeMerge is a callout. Salesforce blocks callouts
-            // after DML in the same transaction, so completeMerge must fire first.
+            }           
+           
             if (verdict == 'COMPLETE_MERGE_AUTO') {
                 try {
                     OAP_CFRIMS_ApiClient.completeMerge(handshake, userEmail);
                 } catch (Exception mergeEx) {
-                    // Log but do not rethrow — application_completed=1 is already in
-                    // the payload so routing to the dashboard still works correctly.
+                   
                     System.debug('[startSession] completeMerge non-fatal error: ' + mergeEx.getMessage());
                 }
             }
-            // ─────────────────────────────────────────────────────────────────────────
+            
+            try {
+                CFRIMS_Logger.flush();
+            } catch (Exception logEx) {
+                System.debug(LoggingLevel.WARN,
+                    '[startSession] log flush failed (non-fatal): ' + logEx.getMessage());
+            }
 
             Id userId = UserInfo.getUserId();
             OAP_Cfrims2SessionCache.putHandshake(userId, handshake);
             OAP_Cfrims2SessionCache.putCasePayload(userId, payload);
             OAP_ChallengeAttemptTracker.reset(userId);
-
-            // Save userIdentifier last — after all callouts and cache writes
+           
             try {
                 List<Account> accsToUpdate = [
                     SELECT Id FROM Account
@@ -237,78 +184,60 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 ];
                 if (!accsToUpdate.isEmpty()) {
                     Account acctToSave = accsToUpdate[0];
-                    // Store ALL session data from the login handshake.
-                    // Abakar confirmed: generate session keys ONCE at login,
-                    // reuse them for submit — never call handshake again.
-                    acctToSave.CFRIMS_User_Identifier__pc  = userIdentifier;
-                    acctToSave.CFRIMS_Client_Session_Id__pc = clientSessionId;
-                    acctToSave.user_key__pc                 = handshake.get('user_key');
-                    acctToSave.CFRIMS_Access_Token__pc      = handshake.get('accessToken');
-                    update acctToSave;
-
-                    // COMPLETE_MERGE_AUTO: inbound applicant whose CFRIMS record
-                    // is already approved. Trigger dashboard fetch to populate Salesforce.
-                    // Do NOT create an ApplicationForm here — that caused duplicates when
-                    // the Account in startSession differed from the one in DataPullService.
-                    // OAP_Cfrims2DashboardFetcher.applyDashboardToSalesforce already has
-                    // a null-formId guard that looks up the most recent form by AccountId.
-                    if (verdict == 'COMPLETE_MERGE_AUTO') {
+                    saveUserIdentifierWithRetry(acctToSave.Id, userIdentifier, userEmail);                                    
+                   
+                    Map<String, String> sessionToPersist = new Map<String, String>{
+                        'clientSessionId' => clientSessionId,
+                        'user_key'        => handshake.get('user_key'),
+                        'accessToken'     => handshake.get('accessToken')
+                    };
+                    OAP_CfrimsSessionUtil.persistSessionIfHandshaken(
+                        acctToSave.Id, sessionToPersist, didHandshake);
+                    
+                    if (verdict == 'COMPLETE_MERGE_AUTO' || verdict == 'ROUTE_BY_STATUS') {
                         List<ApplicationForm> existingForms = [
                             SELECT Id FROM ApplicationForm
                             WHERE AccountId = :acctToSave.Id
                             ORDER BY CreatedDate DESC LIMIT 1
                         ];
-                        // Pass existing formId if found, null otherwise.
-                        // DashboardFetcher handles null by querying the form itself.
+                       
                         Id formId = existingForms.isEmpty() ? null : existingForms[0].Id;
                         OAP_Cfrims2DashboardFetcher.fetchAsync(acctToSave.Id, formId, userEmail);
                     }
                 }
             } catch (Exception saveEx) {
-                System.debug('Could not save userIdentifier / trigger dashboard fetch: ' + saveEx.getMessage());
+                System.debug(LoggingLevel.ERROR,
+                    '[startSession] CFRIMS_IDENTIFIER_SAVE_FAILED — could not save '
+                    + 'userIdentifier ' + userIdentifier + ' for ' + userEmail
+                    + '. This applicant WILL hit ORA-00001/UK_EMAIL on their next '
+                    + 'login unless this identifier is manually restored. Error: '
+                    + saveEx.getMessage());
             }
 
             ChallengeContext result = buildContext(verdict, payload);
             result.resolvedEmail = userEmail;
-            // Store accessToken so Account.CFRIMS_Access_Token__pc is populated
-            // and sendApplicationToCFRIMS can use it without a second handshake
+           
             result.accessToken   = handshake.get('accessToken');
-            // Resolve ApplicationForm ID so the LWC can navigate directly
-            // to the record page (Option B) instead of a generic named page.
-            // Only needed when the application is not yet completed.
+            
             if (!result.applicationCompleted) {
-                List<ApplicationForm> forms = [
-                    SELECT Id FROM ApplicationForm
-                    WHERE Account.PersonEmail = :userEmail
-                    ORDER BY CreatedDate DESC LIMIT 1
-                ];
-                if (!forms.isEmpty()) {
-                    result.applicationFormId = forms[0].Id;
-                }
+                result.applicationFormId = ensureDraftApplicationForm(userEmail);
             }
             return result;
 
         } catch (OAP_CFRIMS_ApiClient.CFRIMS_Exception e) {
-            // ── UK_EMAIL recovery ────────────────────────────────────────────
-            // When a fresh GUID is sent for an email that already exists in
-            // CFRIMS, the handshake returns HTTP 401 with Oracle error:
-            //   ORA-00001: unique constraint (CFRG.UK_EMAIL) violated
-            // CFRIMS still embeds the user's full CasePayload in the error
-            // body (require_merge, application_completed, options, etc.), so
-            // we can parse it and route correctly rather than showing a
-            // generic error.  This covers the case where the user exists in
-            // CFRIMS but has no matching Salesforce Account (so no stored
-            // user identifier is found and a fresh GUID is generated).
+            
+            try { CFRIMS_Logger.flush(); } catch (Exception logEx) {
+                System.debug(LoggingLevel.WARN,
+                    '[startSession] log flush failed (non-fatal): ' + logEx.getMessage());
+            }
+
             String rawMsg = e.getMessage();
-            // CFRIMS uses two constraint names depending on which duplicate
-            // column fires: UK_EMAIL when the email is the duplicate, and
-            // UK_SF_ID when the Salesforce session ID is the duplicate
-            // (happens when clientSessionId was not persisted on a prior login).
+           
             if (rawMsg != null && (
                 rawMsg.contains('UK_EMAIL') ||
                 rawMsg.contains('UK_SF_ID') ||
-                rawMsg.contains('UK_USER_KEY') ||   // original Oracle constraint — same recovery
-                // CFRIMS C# type mismatch error — same recovery handles it
+                rawMsg.contains('UK_USER_KEY') ||   
+               
                 rawMsg.contains('Cannot get the value of a token type')
             )) {
                 try {
@@ -317,17 +246,8 @@ public with sharing class OAP_Cfrims2ChallengeController {
                         CasePayload recovered = (CasePayload) JSON.deserialize(
                             rawMsg.substring(jsonStart), CasePayload.class);
                         applyAccountStateOverrides(userEmail, recovered);
-                        String v;
-
-                        // ── v4 fix (22-Jul-2026) ─────────────────────────────
-                        // ORA-00001 on UK_EMAIL PROVES this email already exists
-                        // in CFRIMS — so 'NEW_APPLICANT' is a contradiction in
-                        // this branch and must never be returned here. The old
-                        // logic trusted the embedded flags, but CFRIMS was
-                        // observed (22-Jul, PP2-TRG) returning an EMPTY default
-                        // payload in this error (all flags 0, no identity data,
-                        // blank accessToken) — which looked exactly like a new
-                        // applicant and routed EXISTING applicants to Home.
+                        String v;                      
+                       
                         Boolean payloadIsEmptyDefaults =
                             (recovered.require_merge == null || recovered.require_merge == 0)
                             && (recovered.application_completed == null || recovered.application_completed == 0)
@@ -335,33 +255,29 @@ public with sharing class OAP_Cfrims2ChallengeController {
                             && (recovered.merge_approved == null || recovered.merge_approved == 0)
                             && recovered.security_question == null;
 
-                        if (payloadIsEmptyDefaults) {
-                            // Empty payload + email-exists constraint ⇒ CFRIMS
-                            // gave us no usable state. Most likely cause: we
-                            // presented a UserIdentifier CFRIMS does not
-                            // associate with this email (identifier mismatch —
-                            // lost/regenerated on our side, or reused email).
-                            // No self-service recovery exists without the
-                            // original identifier → route to CFRG review, NOT
-                            // Home. Recovery: restore the original identifier
-                            // (from CFRIMS API Log History of this email's
-                            // first handshake) to CFRIMS_User_Identifier__pc.
+                        if (payloadIsEmptyDefaults) {                           
+                            List<ApplicationForm> localForms = [
+                                SELECT Id, Stage FROM ApplicationForm
+                                WHERE Account.PersonEmail = :userEmail
+                                ORDER BY CreatedDate DESC LIMIT 1
+                            ];
+                            Boolean localDraft = localForms.isEmpty()
+                                || localForms[0].Stage == 'Draft';
+                            if (!localDraft) {
+                                recovered.application_completed = 1;
+                            }
+                            v = localDraft ? 'NEW_APPLICANT' : 'ROUTE_BY_STATUS';
                             System.debug(LoggingLevel.ERROR,
                                 '[startSession] UK_EMAIL with EMPTY payload for '
                                 + userEmail + ' — identifier mismatch suspected; '
-                                + 'routing to CFRG review. Restore the original '
-                                + 'UserIdentifier from API logs to recover this user.');
-                            v = 'OPTION_5_PENDING';
+                                + 'local-state routing verdict=' + v
+                                + '. Restore the original UserIdentifier from '
+                                + 'API logs to fully recover this user.');
                         } else if (recovered.require_merge != 1) {
-                            // Real payload, no merge required: the email exists
-                            // in CFRIMS (the constraint fired), so route by
-                            // status — never NEW_APPLICANT from this path.
+                            // Real payload, no merge required: the email exists                            
                             v = 'ROUTE_BY_STATUS';
                         } else {
-                            // Merge required but we have no valid handshake to
-                            // submit answers against.  Route to CFRG review so
-                            // the user can be re-evaluated on next login once
-                            // their Account is correctly linked in Salesforce.
+                                                      
                             v = 'OPTION_5_PENDING';
                         }
                         Id uid = UserInfo.getUserId();
@@ -370,14 +286,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
                         ChallengeContext recovCtx = buildContext(v, recovered);
                         recovCtx.resolvedEmail = userEmail;
                         if (!recovCtx.applicationCompleted) {
-                            List<ApplicationForm> recovForms = [
-                                SELECT Id FROM ApplicationForm
-                                WHERE Account.PersonEmail = :userEmail
-                                ORDER BY CreatedDate DESC LIMIT 1
-                            ];
-                            if (!recovForms.isEmpty()) {
-                                recovCtx.applicationFormId = recovForms[0].Id;
-                            }
+                            recovCtx.applicationFormId = ensureDraftApplicationForm(userEmail);
                         }
                         return recovCtx;
                     }
@@ -386,26 +295,20 @@ public with sharing class OAP_Cfrims2ChallengeController {
                         + parseEx.getMessage());
                 }
             }
-            // Unrecoverable handshake failure — not one of the known recoverable
-            // constraint violations above (e.g. a backend Oracle error such as
-            // ORA-22922 "nonexistent LOB value" / ORA-06512 raised inside the
-            // CFRIMS gateway). Previously this fell straight through to the
-            // generic message with no server-side trace, so the real cause was
-            // invisible in the logs. Log the full CFRIMS error (matching the v4
-            // catch-all pattern) while keeping the user message safe.
+            
             System.debug(LoggingLevel.ERROR, '[startSession] Unrecovered CFRIMS '
                 + 'handshake failure for ' + userEmail + ': ' + rawMsg
                 + '\n' + e.getStackTraceString());
+           
+            ChallengeContext degraded = buildDegradedContext(userEmail);
+            if (degraded != null) {
+                return degraded;
+            }
             throw new AuraHandledException('Identity service unavailable. Please try again shortly.');
         } catch (AuraHandledException ahe) {
             throw ahe; // already user-safe — pass through unchanged
-        } catch (Exception ex) {
-            // ── v4: catch-all ────────────────────────────────────────────────
-            // Previously only CFRIMS_Exception was handled; any other type
-            // (DmlException from SessionCache/AttemptTracker, QueryException,
-            // NPE) escaped unwrapped and the portal showed the framework's
-            // opaque "Failed to get error from response". Surface the real
-            // type/message so failures are diagnosable from the UI and logs.
+        } catch (Exception ex) {           
+           
             System.debug(LoggingLevel.ERROR, '[startSession] Unhandled '
                 + ex.getTypeName() + ': ' + ex.getMessage()
                 + '\n' + ex.getStackTraceString());
@@ -413,48 +316,99 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 + ex.getTypeName() + '): ' + ex.getMessage());
         }
     }
-
-    // ── JWT helpers (v3) ─────────────────────────────────────────────────────
-    // Decode the payload segment of a JWT (base64url) into its claims map.
-    // CFRIMS token claims include: nameid (= user_key), email, session_key,
-    // UserIdentifier, ClientSessionID, nbf, exp, iat (verified 21-Jul PP2-TRG).
-    @TestVisible private static Map<String, Object> decodeJwtClaims(String jwt) {
+   
+    @TestVisible
+    private static ChallengeContext buildDegradedContext(String userEmail) {
         try {
-            List<String> parts = jwt.split('\\.');
-            if (parts.size() < 2) return null;
-            String b64 = parts[1].replace('-', '+').replace('_', '/');
-            while (Math.mod(b64.length(), 4) != 0) { b64 += '='; }
-            return (Map<String, Object>) JSON.deserializeUntyped(
-                EncodingUtil.base64Decode(b64).toString());
+            List<ApplicationForm> forms = [
+                SELECT Id, Stage FROM ApplicationForm
+                WHERE Account.PersonEmail = :userEmail
+                ORDER BY CreatedDate DESC LIMIT 1
+            ];
+            Boolean isDraft = forms.isEmpty() || forms[0].Stage == 'Draft';
+
+            CasePayload local = synthesiseNoMergePayload();
+            if (!isDraft) {
+                local.application_completed = 1;
+            }
+            String verdict = isDraft ? 'NEW_APPLICANT' : 'ROUTE_BY_STATUS';
+
+            Id uid = UserInfo.getUserId();
+            OAP_Cfrims2SessionCache.putCasePayload(uid, local);
+            OAP_ChallengeAttemptTracker.reset(uid);
+            ChallengeContext ctx = buildContext(verdict, local);
+            ctx.resolvedEmail = userEmail;
+            if (isDraft) {
+                ctx.applicationFormId = forms.isEmpty()
+                    ? ensureDraftApplicationForm(userEmail)
+                    : forms[0].Id;
+            }
+            System.debug(LoggingLevel.WARN, '[buildDegradedContext] CFRIMS '
+                + 'unavailable — degraded routing for ' + userEmail
+                + ' stage=' + (forms.isEmpty() ? '(no form)' : forms[0].Stage)
+                + ' verdict=' + verdict);
+            return ctx;
         } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR, '[buildDegradedContext] failed: '
+                + e.getTypeName() + ' | ' + e.getMessage());
             return null;
         }
     }
-
-    // CFRIMS tokens live 30 minutes (exp − iat = 1800s). 60s safety buffer.
-    // Unparseable → treated as expired so the caller handshakes fresh.
-    @TestVisible private static Boolean isTokenExpired(String jwt) {
-        Map<String, Object> claims = decodeJwtClaims(jwt);
-        if (claims == null) return true;
-        Object expObj = claims.get('exp');
-        if (expObj == null) return false;
-        try {
-            Long expEpoch = Long.valueOf(String.valueOf(expObj));
-            Long nowEpoch = DateTime.now().getTime() / 1000;
-            return nowEpoch >= (expEpoch - 60);
-        } catch (Exception e) {
-            return true;
-        }
+   
+    @TestVisible
+    private static Boolean latestFormIsDraftOrMissing(String userEmail) {
+        List<ApplicationForm> forms = [
+            SELECT Stage FROM ApplicationForm
+            WHERE Account.PersonEmail = :userEmail
+            ORDER BY CreatedDate DESC LIMIT 1
+        ];
+        return forms.isEmpty() || forms[0].Stage == 'Draft';
     }
-    // ─────────────────────────────────────────────────────────────────────────
+   
+    @TestVisible
+    private static Id ensureDraftApplicationForm(String userEmail) {
+        try {
+            List<ApplicationForm> forms = [
+                SELECT Id FROM ApplicationForm
+                WHERE Account.PersonEmail = :userEmail
+                ORDER BY CreatedDate DESC LIMIT 1
+            ];
+            if (!forms.isEmpty()) {
+                return forms[0].Id;
+            }
+            List<Account> accs = [
+                SELECT Id FROM Account
+                WHERE PersonEmail = :userEmail
+                ORDER BY LastModifiedDate DESC LIMIT 1
+            ];
+            if (accs.isEmpty()) {
+                System.debug(LoggingLevel.WARN,
+                    '[ensureDraftApplicationForm] no Account for ' + userEmail);
+                return null;
+            }
+            ApplicationForm form = new ApplicationForm(
+                AccountId = accs[0].Id,
+                Stage     = 'Draft',
+                UsageType = 'EmployeeRecruitment'
+            );
+            insert form;
+            return form.Id;
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR,
+                '[ensureDraftApplicationForm] failed for ' + userEmail
+                + ': ' + e.getTypeName() + ' | ' + e.getMessage());
+            return null;
+        }
+    }  
 
-    // ── v5: portal session-extension endpoints (spec §2.2 /Auth/keepalive) ──
-    // For the session-timer UX: the portal warns ~5 min before token expiry
-    // ("Do you want to continue?"); Continue → extendSession().
+    @TestVisible private static Map<String, Object> decodeJwtClaims(String jwt) {
+        return OAP_CfrimsSessionUtil.decodeJwtClaims(jwt);
+    }
 
-    /** Seconds until the logged-in user's stored CFRIMS token expires.
-     *  0 = no usable session (expired/absent) — the timer LWC should treat
-     *  that as "next CFRIMS action will re-establish or fail visibly". */
+    @TestVisible private static Boolean isTokenExpired(String jwt) {
+        return OAP_CfrimsSessionUtil.isTokenExpired(jwt);
+    }   
+   
     @AuraEnabled
     public static Integer getSessionSecondsRemaining() {
         try {
@@ -471,10 +425,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
             return 0;
         }
     }
-
-    /** Renews the CFRIMS session via /Auth/keepalive and persists the fresh
-     *  token. Returns the new remaining seconds. Must be called while the
-     *  current token is still valid (keepalive "requires active" session). */
+   
     @AuraEnabled
     public static Integer extendSession() {
         try {
@@ -505,35 +456,20 @@ public with sharing class OAP_Cfrims2ChallengeController {
     }
 
     @TestVisible
-    private static void applyAccountStateOverrides(String userEmail, CasePayload payload) {
-        if (payload == null || String.isBlank(userEmail)) return;
-        if (payload.application_completed == 1) return;
-        try {
-            // v4: read via without-sharing helper — this runs as the PORTAL
-            // user, and sharing/FLS gaps on integration fields were silently
-            // returning blanks, so the override never fired and returning
-            // applicants were routed to Home as NEW_APPLICANT.
+    private static Boolean applyAccountStateOverrides(String userEmail, CasePayload payload) {
+        if (payload == null || String.isBlank(userEmail)) return false;
+        try {          
+            
             AccountStateReader reader = new AccountStateReader();
             List<Account> matches = reader.byEmail(userEmail);
             if (matches.isEmpty()) {
                 System.debug(LoggingLevel.WARN,
                     '[applyAccountStateOverrides] no Account visible for ' + userEmail);
-                return;
+                return false;
             }
             Account a = matches[0];
             // v4: CFRIMS_Sync_Status__pc = 'Success' is the AUTHORITATIVE
-            // submitted signal — written by the submit handler at the moment
-            // of success. Alpha Number / Applicant Status only arrive later
-            // via the dashboard pull, so applicants whose pull hadn't run yet
-            // (or partially failed) were misclassified as new on every login.
-            // v4.1: the Sync Status picklist has a wider lifecycle than the
-            // three values written by the reviewed Apex. All of these mean
-            // "an application was submitted — NOT a new applicant":
-            //   Success | Submitted | Submitted – Pending Dashboard
-            //   Pending CFRIMS Sync | Manual Review
-            // Deliberately excluded: 'In Progress' (pre-submit), 'Failed'
-            // (submit never landed), 'Already Registered' (burned email —
-            // contact-CFRG is the correct destination for them).
+            
             Set<String> submittedStatuses = new Set<String>{
                 'Success', 'Submitted', 'Submitted – Pending Dashboard',
                 'Submitted - Pending Dashboard', // both dash variants, defensively
@@ -544,9 +480,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 || String.isNotBlank(a.CFRIMS_Alpha_Number__pc)
                 || String.isNotBlank(a.CFRIMS_Applicant_Status__pc);
 
-            // Belt-and-braces: a submitted/completed ApplicationForm also
-            // proves this is not a new applicant, even if account-level
-            // integration fields were cleared.
+            
             if (!salesforceSaysSubmitted) {
                 salesforceSaysSubmitted = reader.hasSubmittedForm(a.Id);
             }
@@ -558,17 +492,15 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 + ' → submitted=' + salesforceSaysSubmitted);
 
             if (salesforceSaysSubmitted) payload.application_completed = 1;
+            return salesforceSaysSubmitted;
         } catch (Exception e) {
             System.debug(LoggingLevel.WARN,
                 '[applyAccountStateOverrides] failed (non-fatal): ' + e.getMessage());
+            return false;
         }
     }
 
-    // v4: sharing-safe reader for the user's own integration state.
-    // startSession executes as the portal user; org sharing rules do not
-    // reliably grant them read access to these integration fields on their
-    // own Person Account. Scope is strictly limited to the two lookups below.
-    // (Instance methods — Apex forbids static members on inner classes.)
+    
     private without sharing class AccountStateReader {
         private List<Account> byEmail(String email) {
             return [
@@ -577,8 +509,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 FROM Account WHERE PersonEmail = :email LIMIT 1
             ];
         }
-        // v5: session lookup for the keepalive endpoints — reads the stored
-        // token without requiring portal FLS on the token field.
+        
         private Account sessionByEmail(String email) {
             List<Account> matches = [
                 SELECT Id, CFRIMS_Access_Token__pc
@@ -588,11 +519,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
         }
 
         private Boolean hasSubmittedForm(Id accountId) {
-            // v4.1: SubmissionDate removed from the criteria — this org
-            // populates it at form CREATION (Draft), not at submit, so it
-            // was classifying every draft-holder as submitted and routing
-            // unsubmitted users to the dashboard. Stage and the sync flag
-            // are the only trustworthy submitted signals on the form.
+           
             List<ApplicationForm> forms = [
                 SELECT Id FROM ApplicationForm
                 WHERE AccountId = :accountId
@@ -624,10 +551,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
         if (String.isBlank(optionCode)) {
             throw new AuraHandledException('Missing required input.');
         }
-        // Same fallback startSession uses: the LWC's email can arrive blank
-        // (challengeContext.resolvedEmail not echoed back to the child), which
-        // used to fail the whole verification with "Missing required input."
-        // even though the server can always resolve the running user's email.
+        
         if (String.isBlank(userEmail)) {
             userEmail = UserInfo.getUserEmail();
             System.debug(LoggingLevel.WARN,
@@ -635,10 +559,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 + userEmail);
         }
         try {
-            // Option 1 (SMS code) is validated against the code this org sent
-            // via OAP_SmsOtpService — OAP_Cfrims2ChallengeService.validate()
-            // would ask Salesforce Identity Verification, which no longer
-            // issues the code. Every other option is unchanged.
+           
             Boolean passed = optionCode == '1'
                 ? OAP_SmsOtpService.verifyCode(
                     answer == null || answer.get('code') == null
@@ -647,9 +568,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 : OAP_Cfrims2ChallengeService.validate(optionCode, answer, userEmail);
 
             if (passed) {
-                // CFRIMS confirmed: there is no /Applicants/challenge endpoint.
-                // All challenge verification is done locally using data from the handshake
-                // response — OAP_Cfrims2ChallengeService.validate() above is the full gate.
+               
                 Map<String, String> handshake = OAP_Cfrims2SessionCache.getHandshake(UserInfo.getUserId());
                 OAP_CFRIMS_ApiClient.completeMerge(handshake, userEmail);
                 OAP_Cfrims2DataPullService.pull(userEmail);
@@ -664,18 +583,15 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 return wrongAnswerResult(remaining);
             }
 
-        } catch (OAP_SmsOtpService.SmsOtpException e) {
-            // Expired / no outstanding code / attempt limit — user-safe and
-            // distinct from "wrong code, N attempts left", so it must not be
-            // folded into wrongAnswerResult().
+        } catch (OAP_SmsOtpService.SmsOtpException e) {           
             throw new AuraHandledException(e.getMessage());
-        } catch (OAP_CFRIMS_ApiClient.CFRIMS_Exception e) {
-            throw new AuraHandledException('Validation failed: ' + e.getMessage());
+        } catch (OAP_CFRIMS_ApiClient.CFRIMS_Exception e) {            
+            
+            System.debug(LoggingLevel.ERROR, 'submitAnswer: ' + e.getMessage());
+            throw new AuraHandledException('Validation failed. Please try again.');
         }
     }
-
-    // Called when applicant fails all challenges or no options available
-    // Calls /Applicants/manualmerge then routes to Contact CFRG page
+   
     @AuraEnabled
     public static void triggerManualMerge(String userEmail) {
         if (String.isBlank(userEmail)) {
@@ -688,9 +604,8 @@ public with sharing class OAP_Cfrims2ChallengeController {
             ];
             String userIdentifier = String.isNotBlank(a.CFRIMS_User_Identifier__pc)
                 ? a.CFRIMS_User_Identifier__pc
-                : 'SF-GUID-' + String.valueOf(Math.abs(Crypto.getRandomLong()));
-
-            // Call manualmerge endpoint — fires and forgets
+                : OAP_Utils.generateSfGuid();
+           
             // CFRG team handles approval asynchronously
             OAP_CalloutService.invoke(JSON.serialize(new Map<String, String>{
                 'email'          => userEmail,
@@ -699,23 +614,12 @@ public with sharing class OAP_Cfrims2ChallengeController {
             }));
             System.debug('OAP_Cfrims2ChallengeController: manualmerge called for ' + userEmail);
         } catch (Exception e) {
-            // Non-fatal — user is already routed to Contact CFRG page
+            
             System.debug('OAP_Cfrims2ChallengeController: manualmerge failed (non-fatal): '
                 + e.getMessage());
         }
     }
-
-    // Only required by the Salesforce Identity Verification path, which sends
-    // to the running user's MobilePhone and needs it in strict E.164 to resolve
-    // the carrier. requestSmsCode no longer uses that path (see below), so the
-    // LWC no longer calls this; it is kept because the OmniScript-driven MFA
-    // configuration still relies on the user's MobilePhone being populated.
-    //
-    // Note for any future caller: this must be its own Aura round-trip if it is
-    // followed by System.UserManagement.init(Register)VerificationMethod, which
-    // the platform treats as a callout and so cannot share a transaction with
-    // the DML below ("A callout was unsuccessful because of pending uncommitted
-    // work...").
+    
     @AuraEnabled
     public static void syncPhoneForVerification(String phoneOnFile) {
         try {
@@ -736,61 +640,15 @@ public with sharing class OAP_Cfrims2ChallengeController {
             throw new AuraHandledException('Could not prepare phone verification.');
         }
     }
-
-    // v27 fix: formatPhoneNumber's output included a space ("+1 6478602992" —
-    // confirmed via debug log on a real failed verification attempt), and a
-    // subsequent System.UserManagement.initRegisterVerificationMethod call
-    // failed with a generic "Something went wrong" error immediately after.
-    // Identity Verification expects strict E.164 (no spaces/formatting), so
-    // formatPhoneNumber was dropped in favour of building the value locally,
-    // removing the space entirely rather than trying to detect and strip it
-    // after the fact.
-    //
-    // The v27 caveat above is now confirmed and addressed. toE164() is
-    // NANP-only: it returns '+1' + digits for a 10-digit number, '+' + digits
-    // for an 11-digit number starting with '1', and otherwise returns the RAW
-    // input unchanged — spaces and punctuation included. So an international
-    // number (e.g. "+44 20 7946 0958", 12 digits) fell through untouched and
-    // was stored with spaces, reproducing the very space-format failure v27
-    // set out to eliminate.
-    //
-    // Formatting is therefore done here from digits only, using the
-    // applicant's own dial code, so the result is strict E.164 for every
-    // region and can never contain whitespace.
-    //
-    // Leading zeros are stripped because most countries outside the NANP
-    // write numbers with a national trunk prefix ('0') that must be dropped
-    // before the dial code (UK 020 7946 0958 -> +44 20 7946 0958). This is a
-    // pragmatic rule, not a full libphonenumber: regions whose trunk prefix
-    // is not '0' are not special-cased.
+    
     private static String formatForVerification(String phone) {
-        if (String.isBlank(phone)) return phone;
-
-        Boolean alreadyPrefixed = phone.trim().startsWith('+');
-
-        String digits = phone.replaceAll('[^0-9]', '').replaceFirst('^0+', '');
-        if (String.isBlank(digits)) return phone;
-
-        String dialCode = resolveApplicantDialCode();
-        return alreadyPrefixed || digits.startsWith(dialCode)
-            ? '+' + digits
-            : '+' + dialCode + digits;
+        return OAP_Cfrims2ChallengeService.toE164(phone);
     }
-
-    // Looks up the running user's Account.OAP_Primary_Phone_Country_Code__c
-    // and parses it into a bare calling code (no leading "+") via the shared
-    // OAP_PhoneRegionUtil, since formatForVerification concatenates it with
-    // the digits itself. Falls back to '1' (Canada/NA default, matching
-    // this flow's pre-fix behavior) if the account can't be found, the field
-    // is blank, or it's set to "Other" with no embedded dial code.
+   
     private static String resolveApplicantDialCode() {
         return resolveApplicantDialCode(UserInfo.getUserEmail());
     }
-
-    // Split out from the no-arg overload above so tests can exercise the
-    // lookup/parsing logic directly — UserInfo.getUserEmail() reflects the
-    // actual running user and can't be mocked without standing up a full
-    // community/portal user in the test, which this doesn't need.
+    
     @TestVisible
     private static String resolveApplicantDialCode(String applicantEmail) {
         try {
@@ -809,16 +667,49 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 '[resolveApplicantDialCode] ' + e.getMessage());
             return '1';
         }
+    }    
+    
+    @TestVisible
+    private static void saveUserIdentifierWithRetry(
+            Id accountId, String userIdentifier, String userEmail) {
+        Integer attempts = 0;
+        Exception lastError = null;
+        while (attempts < 2) {
+            attempts++;
+            try {
+                update new Account(Id = accountId, CFRIMS_User_Identifier__pc = userIdentifier);
+                return; // success
+            } catch (DmlException dex) {
+                lastError = dex;
+                if (dex.getDmlType(0) == StatusCode.DUPLICATE_VALUE) {                    
+                    System.debug(LoggingLevel.ERROR,
+                        '[saveUserIdentifierWithRetry] CFRIMS_IDENTIFIER_DUPLICATE — '
+                        + 'userIdentifier ' + userIdentifier + ' is already assigned '
+                        + 'to a different Account. Email: ' + userEmail
+                        + ' Target Account.Id: ' + accountId
+                        + ' — DATA INTEGRITY ISSUE, requires admin attention.');
+                    return;
+                }
+                System.debug(LoggingLevel.WARN,
+                    '[saveUserIdentifierWithRetry] attempt ' + attempts
+                    + ' failed for ' + userEmail + ': ' + dex.getMessage());
+            } catch (Exception e) {
+                lastError = e;
+                System.debug(LoggingLevel.WARN,
+                    '[saveUserIdentifierWithRetry] attempt ' + attempts
+                    + ' failed for ' + userEmail + ': ' + e.getMessage());
+            }
+        }
+        // Both attempts failed and it wasn't a DUPLICATE_VALUE short-circuit.
+        System.debug(LoggingLevel.ERROR,
+            '[saveUserIdentifierWithRetry] CFRIMS_IDENTIFIER_SAVE_FAILED after '
+            + attempts + ' attempts — userIdentifier ' + userIdentifier
+            + ' for ' + userEmail + ' was NOT persisted. This applicant WILL hit '
+            + 'ORA-00001/UK_EMAIL on their next login unless this identifier is '
+            + 'manually restored. Last error: '
+            + (lastError != null ? lastError.getMessage() : 'unknown'));
     }
-
-    // Sends the Option 1 code through OAP_SmsOtpService (our own code, Google
-    // CCAI delivery) rather than OAP_Cfrims2ChallengeService.requestSmsCode,
-    // which used Salesforce Identity Verification. On PP2-TRG that platform
-    // call rejected the portal user with "We cannot verify this phone number.
-    // Check its format and try again." for a valid +1 number and never reached
-    // the OTP delivery handler, so no SMS was sent — while the OmniScript,
-    // which calls the delivery handler directly, worked. Returns the masked
-    // number for display.
+   
     @AuraEnabled
     public static String requestSmsCode(String userEmail) {
         try {
@@ -834,17 +725,11 @@ public with sharing class OAP_Cfrims2ChallengeController {
         } catch (Exception e) {
             System.debug(LoggingLevel.ERROR, '[requestSmsCode] '
                 + e.getTypeName() + ': ' + e.getMessage());
-            throw new AuraHandledException(
-                'Could not send the code. Please try again or choose a different option.');
+            throw new AuraHandledException(System.Label.OAP_Challenge_Sms_SendFailed);
         }
     }
 
-    // Resolves the applicant's phone. OAP_Cfrims2SessionCache is backed by
-    // Cache.Session, whose writes silently fall back to a transaction-local map
-    // when the org has no session cache capacity — so by a later Aura round-trip
-    // the cached payload (and its phone) can be gone. Fall back to the running
-    // user's MobilePhone so a cache miss does not surface a false "no phone on
-    // file".
+   
     private static String resolveApplicantPhone() {
         CasePayload cached = OAP_Cfrims2SessionCache.getCasePayload(UserInfo.getUserId());
         String phone = cached != null ? cached.phone : null;
@@ -861,9 +746,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
     public static Cfrims2SecurityQuestion pickDifferentQuestion(
             String currentQuestionText, List<Cfrims2SecurityQuestion> allQuestions) {
         return OAP_Cfrims2ChallengeService.pickDifferentQuestion(currentQuestionText, allQuestions);
-    }
-
-    // ── DTOs ─────────────────────────────────────────────────────────────────
+    }   
 
     public class ChallengeContext {
         @AuraEnabled public String  verdict;
@@ -874,7 +757,8 @@ public with sharing class OAP_Cfrims2ChallengeController {
         @AuraEnabled public List<Cfrims2SecurityQuestion> securityQuestions;
         @AuraEnabled public String  referenceNumber;
         @AuraEnabled public Boolean applicationCompleted;
-        @AuraEnabled public String  applicationFormId;
+        @AuraEnabled public String  applicationFormId;      
+        @AuraEnabled public Boolean inCommunity;
         // Stored on Account after login — reused by sendApplicationToCFRIMS
         // so no second handshake is needed (confirmed by Abakar)
         public String accessToken;
@@ -885,7 +769,8 @@ public with sharing class OAP_Cfrims2ChallengeController {
         ChallengeContext ctx  = new ChallengeContext();
         ctx.verdict           = v;
         ctx.referenceNumber   = payload.getAlphaNb();
-        ctx.applicationCompleted = payload.application_completed == 1;
+        ctx.applicationCompleted = payload.application_completed == 1;       
+        ctx.inCommunity       = Network.getNetworkId() != null;
         // accessToken set by caller (startSession) after successful handshake
         if (v == 'SHOW_OPTIONS') {
             ctx.availableOptions = ChallengeOptionResolver.resolve(payload);
@@ -931,5 +816,14 @@ public with sharing class OAP_Cfrims2ChallengeController {
         ChallengeResult r = new ChallengeResult();
         r.status          = 'ESCALATE';
         return r;
+    }
+
+    // True when at least one challenge option other than Contact CFRG can
+    // actually be presented (flags set AND the data needed to run it exists).
+    private static Boolean hasChallengeOptions(CasePayload payload) {
+        for (OAP_Cfrims2AvailableOption o : ChallengeOptionResolver.resolve(payload)) {
+            if (o != null && o.code != '5') return true;
+        }
+        return false;
     }
 }

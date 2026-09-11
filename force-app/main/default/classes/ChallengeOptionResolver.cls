@@ -3,7 +3,7 @@ public with sharing class ChallengeOptionResolver {
     public static List<OAP_Cfrims2AvailableOption> resolve(CasePayload p) {
         List<OAP_Cfrims2AvailableOption> options = new List<OAP_Cfrims2AvailableOption>();
         if (p == null) {
-            options.add(new OAP_Cfrims2AvailableOption('5', 'Contact CFRG'));
+            options.add(new OAP_Cfrims2AvailableOption('5', System.Label.OAP_Challenge_Opt5_GetHelp));
             return options;
         }
 
@@ -16,19 +16,19 @@ public with sharing class ChallengeOptionResolver {
         // nothing to send an SMS to, so requestSmsCode would only throw
         // "No phone number on file". Gate it like option 3 gates service_nb.
         if (opt1 == 1 && String.isNotBlank(p.phone)) {
-            options.add(new OAP_Cfrims2AvailableOption('1', 'Send code to phone on file'));
+            options.add(new OAP_Cfrims2AvailableOption('1', System.Label.OAP_Challenge_Opt1_SendCode));
         }
         if (opt2 == 1 && p.security_question != null && !p.security_question.isEmpty()) {
-            options.add(new OAP_Cfrims2AvailableOption('2', 'Security question'));
+            options.add(new OAP_Cfrims2AvailableOption('2', System.Label.OAP_Challenge_Opt2_SecurityQuestion));
         }
         if (opt3 == 1 && String.isNotBlank(p.service_nb)) {
-            options.add(new OAP_Cfrims2AvailableOption('3', 'Service number + DOB'));
+            options.add(new OAP_Cfrims2AvailableOption('3', System.Label.OAP_Challenge_Opt3_ServiceNumber));
         }
         if (opt4 == 1) {
-            options.add(new OAP_Cfrims2AvailableOption('4', 'Last name + DOB + city of birth'));
+            options.add(new OAP_Cfrims2AvailableOption('4', System.Label.OAP_Challenge_Opt4_BirthDetails));
         }
 
-        options.add(new OAP_Cfrims2AvailableOption('5', 'Contact CFRG'));
+        options.add(new OAP_Cfrims2AvailableOption('5', System.Label.OAP_Challenge_Opt5_GetHelp));
         return options;
     }
 

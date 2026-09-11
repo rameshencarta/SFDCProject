@@ -1,0 +1,48 @@
+<template>
+    <div class="slds-box slds-p-around_medium">
+        <h2 class="slds-text-heading_medium slds-m-bottom_x-small">{labels.title}</h2>
+        <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_medium">
+            {labels.selectMethod}
+        </p>
+
+        <template if:true={defaultOptionData}>
+            <div class="slds-box slds-box_x-small slds-theme_shade slds-m-bottom_small">
+                <div class="slds-grid slds-grid_vertical-align-center">
+                    <span class="slds-icon_container slds-m-right_x-small">
+                        <lightning-icon icon-name="utility:check" size="x-small" variant="inverse"></lightning-icon>
+                    </span>
+                    <strong>{defaultOptionData.label}</strong>
+                </div>
+                <p class="slds-text-body_small slds-text-color_weak slds-m-top_xx-small">{labels.recommended}</p>
+            </div>
+            <lightning-button
+                variant="brand"
+                label={labels.continueLabel}
+                onclick={handleDefault}
+                class="slds-m-bottom_small"
+                stretch>
+            </lightning-button>
+        </template>
+
+        <template if:true={hasMoreOptions}>
+            <lightning-button
+                variant="base"
+                label={moreOptionsLabel}
+                icon-name={moreOptionsIcon}
+                onclick={toggleMore}>
+            </lightning-button>
+
+            <template if:true={showMore}>
+                <ul class="slds-m-top_small slds-has-dividers_around-space">
+                    <template for:each={otherOptions} for:item="opt">
+                        <li key={opt.code} class="slds-item slds-p-around_x-small">
+                            <a onclick={handleOther} data-code={opt.code} class="slds-text-link">
+                                {opt.label}
+                            </a>
+                        </li>
+                    </template>
+                </ul>
+            </template>
+        </template>
+    </div>
+</template>
