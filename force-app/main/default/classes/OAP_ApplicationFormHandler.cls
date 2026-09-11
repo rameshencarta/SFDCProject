@@ -813,6 +813,9 @@ public class OAP_ApplicationFormHandler {
             };
             HttpResponse res = OAP_HttpCalloutGateway.send(req);
 
+            System.debug(LoggingLevel.Error, 'SFRIMS Submit Status=' +res.getStatusCode());
+            System.debug(LoggingLevel.Error, 'CFRIMS Submit Body=' +res.getBody());
+
             acct.user_key__pc               = userKey;
             acct.CFRIMS_User_Identifier__pc = resolvedUserIdentifier;
             // Persist the fallback-handshake token (v6) so startSession's
