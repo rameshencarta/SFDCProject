@@ -28,6 +28,12 @@ public with sharing class OAP_Cfrims2DataPullService {
         'enrolled'              => 'Enrolled'
     };
 
+    /** CFRIMS reference table: applicant_file_status code → bin name.
+     *  Populated from the CFRIMS reference table; codes not listed here
+     *  leave Stage untouched. */
+    @TestVisible
+    private static final Map<String, String> FILE_STATUS_BIN_MAP = new Map<String, String>();
+
     /** Keys under which the Dashboard payload may carry the bin name
      *  (root level or applications[0]). */
     @TestVisible
@@ -857,6 +863,10 @@ public with sharing class OAP_Cfrims2DataPullService {
                 if (!apps.isEmpty() && apps[0] instanceof Map<String, Object>) {
                     bin = firstBinKey((Map<String, Object>) apps[0]);
                 }
+            }
+            if (bin == null && root.get('applicant_file_status') != null) {
+                bin = FILE_STATUS_BIN_MAP.get(
+                    String.valueOf(root.get('applicant_file_status')).trim());
             }
             return bin;
         } catch (Exception e) {
