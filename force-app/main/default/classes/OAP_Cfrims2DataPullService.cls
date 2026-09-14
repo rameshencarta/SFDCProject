@@ -3,9 +3,38 @@ public with sharing class OAP_Cfrims2DataPullService {
     /** Preferred Stage when CFRIMS reports application_completed = 1;
      *  falls back through STAGE_COMPLETED_FALLBACKS to whatever the org's
      *  restricted Stage picklist actually contains. */
-    @TestVisible private static final String STAGE_COMPLETED = 'File Submitted (Pending Review)';
+    @TestVisible private static final String STAGE_COMPLETED = 'Application Submitted';
     @TestVisible private static final List<String> STAGE_COMPLETED_FALLBACKS =
-        new List<String>{ STAGE_COMPLETED, 'Submitted' };
+        new List<String>{ STAGE_COMPLETED, 'File Submitted (Pending Review)', 'Submitted' };
+
+    /** CFRIMS bin (lower-cased) → ApplicationForm.Stage. French labels come
+     *  from the Stage picklist translation, not from this map. */
+    @TestVisible
+    private static final Map<String, String> BIN_STAGE_MAP = new Map<String, String>{
+        'potential applicants'  => 'Application Submitted',
+        'applicant qc'          => 'Application Submitted',
+        'initial processing'    => 'Testing & Screening',
+        'intake management'     => 'Testing & Screening',
+        'rfmi'                  => 'Medical & Interview',
+        'awaiting rmo decision' => 'Medical & Interview',
+        'final processing'      => 'Security & Background Checks',
+        'rfcl'                  => 'Selection',
+        'cl'                    => 'Selection',
+        'selected'              => 'Job Offer',
+        'offer tendered'        => 'Job Offer',
+        'offer accepted'        => 'Offer Accepted',
+        'ready for enrollment'  => 'Enrolled',
+        'ready for enrolment'   => 'Enrolled',
+        'enrolled'              => 'Enrolled'
+    };
+
+    /** Keys under which the Dashboard payload may carry the bin name
+     *  (root level or applications[0]). */
+    @TestVisible
+    private static final List<String> BIN_KEYS = new List<String>{
+        'bin', 'bin_name', 'applicant_bin', 'current_bin', 'bin_desc',
+        'applicant_file_status_desc', 'file_status_desc', 'file_status_name'
+    };
 
     /** Stage to set when CFRIMS reports application_completed = 0 */
     @TestVisible private static final String STAGE_DRAFT = 'Draft';
@@ -221,7 +250,8 @@ public with sharing class OAP_Cfrims2DataPullService {
 
         Id primaryFormId = upsertApplicationFormFromHandshake(
             accountId, dashboard.applications, handshakeApplicantData, dashboard,
-            parseHandshakeCompletedFlag(handshake.get('rawBody')));
+            parseHandshakeCompletedFlag(handshake.get('rawBody')),
+            extractBinName(rawDashboardBody));
 
         // Mapping doc: occ_display_mos / occ_display_component → ApplicationForm.
         applyOccupationDisplay(primaryFormId, dashboard);
@@ -550,7 +580,8 @@ public with sharing class OAP_Cfrims2DataPullService {
             List<DashboardPayload.Application> dashboardApps,
             Map<String, Object> handshakeApplicantData,
             DashboardPayload dashboard,
-            Boolean handshakeCompleted) {
+            Boolean handshakeCompleted,
+            String binName) {
 
         List<ApplicationForm> existing = [
             SELECT Id, AccountId, Stage, SubmissionDate, UsageType,
@@ -714,6 +745,14 @@ public with sharing class OAP_Cfrims2DataPullService {
         Boolean indSummer = readBooleanFlag(hsEntryPlan, 'aboriginal_summer_program');
         if (indSummer != null) form.OAP_Indigenous_Summer_Program__c = indSummer;
 
+        String binStage = stageForBin(binName);
+        if (binStage != null && form.Stage != STAGE_DRAFT) {
+            form.Stage = binStage;
+        } else if (String.isNotBlank(binName) && binStage == null) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: unmapped CFRIMS bin "' + binName + '"');
+        }
+
         form.CFRIMS_Synced__c          = true;
         form.CFRIMS_Last_Sync_Error__c = null;
 
@@ -732,6 +771,7 @@ public with sharing class OAP_Cfrims2DataPullService {
                     'GET', '',
                     (isNewForm ? 'Created' : 'Updated') + ' ApplicationForm ' + form.Id
                         + ' | stage=' + form.Stage
+                        + ' | bin=' + binName
                         + ' | applicationStatus=' + form.ApplicationStatus
                         + ' | dashboardApps='
                         + (dashboardApps == null ? 'null' : String.valueOf(dashboardApps.size()))
@@ -803,6 +843,47 @@ public with sharing class OAP_Cfrims2DataPullService {
             if (String.isNotBlank(v)) return v;
         }
         return null;
+    }
+
+    /** Pulls the bin name out of the raw Dashboard JSON (root or applications[0]). */
+    @TestVisible
+    private static String extractBinName(String rawDashboardBody) {
+        if (String.isBlank(rawDashboardBody)) return null;
+        try {
+            Map<String, Object> root =
+                (Map<String, Object>) JSON.deserializeUntyped(rawDashboardBody);
+            String bin = firstBinKey(root);
+            if (bin == null && root.get('applications') instanceof List<Object>) {
+                List<Object> apps = (List<Object>) root.get('applications');
+                if (!apps.isEmpty() && apps[0] instanceof Map<String, Object>) {
+                    bin = firstBinKey((Map<String, Object>) apps[0]);
+                }
+            }
+            return bin;
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: could not read bin: ' + e.getMessage());
+            return null;
+        }
+    }
+
+    private static String firstBinKey(Map<String, Object> node) {
+        if (node == null) return null;
+        for (String key : BIN_KEYS) {
+            Object v = node.get(key);
+            if (v != null && String.isNotBlank(String.valueOf(v))) return String.valueOf(v).trim();
+        }
+        return null;
+    }
+
+    /** BIN_STAGE_MAP lookup, validated against the org's active Stage picklist;
+     *  null when the bin is unknown or the target value is not active. */
+    @TestVisible
+    private static String stageForBin(String binName) {
+        if (String.isBlank(binName)) return null;
+        String target = BIN_STAGE_MAP.get(binName.trim().toLowerCase());
+        if (target == null) return null;
+        return picklistApiName(ApplicationForm.Stage.getDescribe(), target);
     }
 
     private static String resolvedStageCompleted;
