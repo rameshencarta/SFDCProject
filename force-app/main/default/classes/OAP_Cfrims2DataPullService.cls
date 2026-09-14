@@ -751,14 +751,6 @@ public with sharing class OAP_Cfrims2DataPullService {
         Boolean indSummer = readBooleanFlag(hsEntryPlan, 'aboriginal_summer_program');
         if (indSummer != null) form.OAP_Indigenous_Summer_Program__c = indSummer;
 
-        String binStage = stageForBin(binName);
-        if (binStage != null && form.Stage != STAGE_DRAFT) {
-            form.Stage = binStage;
-        } else if (String.isNotBlank(binName) && binStage == null) {
-            System.debug(LoggingLevel.WARN,
-                'OAP_Cfrims2DataPullService: unmapped CFRIMS bin "' + binName + '"');
-        }
-
         form.CFRIMS_Synced__c          = true;
         form.CFRIMS_Last_Sync_Error__c = null;
 
@@ -766,6 +758,8 @@ public with sharing class OAP_Cfrims2DataPullService {
             String mappedStatus = APPLICANT_STATUS_MAP.get(dashboard.applicant_status);
             if (mappedStatus != null) form.ApplicationStatus = mappedStatus;
         }
+
+        applyBinTransformation(form, binName);
 
         try {
             upsert form;
@@ -883,6 +877,31 @@ public with sharing class OAP_Cfrims2DataPullService {
             if (v != null && String.isNotBlank(String.valueOf(v))) return String.valueOf(v).trim();
         }
         return null;
+    }
+
+    /** CFRIMS bin → ApplicationStatus (bin name) + Stage (OAP step).
+     *  Draft forms and unknown bins are left untouched. */
+    public static void applyBinTransformation(ApplicationForm form, String binName) {
+        if (form == null || String.isBlank(binName)) return;
+        if (form.Stage == STAGE_DRAFT) return;
+
+        String statusValue = picklistApiName(
+            ApplicationForm.ApplicationStatus.getDescribe(), binName);
+        if (statusValue != null) {
+            form.ApplicationStatus = statusValue;
+        } else {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: bin "' + binName
+                + '" is not an ApplicationStatus picklist value');
+        }
+
+        String binStage = stageForBin(binName);
+        if (binStage != null) {
+            form.Stage = binStage;
+        } else {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: no OAP step mapped for bin "' + binName + '"');
+        }
     }
 
     /** BIN_STAGE_MAP lookup, validated against the org's active Stage picklist;

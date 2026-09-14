@@ -542,14 +542,14 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
                 form.Stage = OAP_Cfrims2DataPullService.stageCompleted();
                 formChanged = true;
             }
-            String binName  = OAP_Cfrims2DataPullService.extractBinName(rawBody);
-            String binStage = OAP_Cfrims2DataPullService.stageForBin(binName);
-            if (binStage != null && form.Stage != binStage) {
-                form.Stage = binStage;
-                formChanged = true;
-            } else if (String.isNotBlank(binName) && binStage == null) {
-                System.debug(LoggingLevel.WARN,
-                    'OAP_Cfrims2DashboardFetcher: unmapped CFRIMS bin "' + binName + '"');
+            String binName = OAP_Cfrims2DataPullService.extractBinName(rawBody);
+            if (String.isNotBlank(binName)) {
+                String prevStage  = form.Stage;
+                String prevStatus = form.ApplicationStatus;
+                OAP_Cfrims2DataPullService.applyBinTransformation(form, binName);
+                if (form.Stage != prevStage || form.ApplicationStatus != prevStatus) {
+                    formChanged = true;
+                }
             }
             String mappedStatus = APPLICANT_STATUS_MAP.get(statusCode);
             if (mappedStatus != null
