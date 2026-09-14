@@ -846,8 +846,7 @@ public with sharing class OAP_Cfrims2DataPullService {
     }
 
     /** Pulls the bin name out of the raw Dashboard JSON (root or applications[0]). */
-    @TestVisible
-    private static String extractBinName(String rawDashboardBody) {
+    public static String extractBinName(String rawDashboardBody) {
         if (String.isBlank(rawDashboardBody)) return null;
         try {
             Map<String, Object> root =
@@ -878,8 +877,7 @@ public with sharing class OAP_Cfrims2DataPullService {
 
     /** BIN_STAGE_MAP lookup, validated against the org's active Stage picklist;
      *  null when the bin is unknown or the target value is not active. */
-    @TestVisible
-    private static String stageForBin(String binName) {
+    public static String stageForBin(String binName) {
         if (String.isBlank(binName)) return null;
         String target = BIN_STAGE_MAP.get(binName.trim().toLowerCase());
         if (target == null) return null;
@@ -890,8 +888,7 @@ public with sharing class OAP_Cfrims2DataPullService {
 
     /** First value of STAGE_COMPLETED_FALLBACKS that is an active entry on
      *  ApplicationForm.Stage; defaults to STAGE_COMPLETED if none is found. */
-    @TestVisible
-    private static String stageCompleted() {
+    public static String stageCompleted() {
         if (resolvedStageCompleted == null) {
             Schema.DescribeFieldResult dfr = ApplicationForm.Stage.getDescribe();
             for (String candidate : STAGE_COMPLETED_FALLBACKS) {

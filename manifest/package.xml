@@ -4,6 +4,7 @@
         <members>ChallengeOptionResolver</members>
         <members>OAP_Cfrims2ChallengeController</members>
         <members>OAP_ApplicationFormHandler</members>
+        <members>OAP_Cfrims2DashboardFetcher</members>
         <members>OAP_Cfrims2DataPullService</members>
         <name>ApexClass</name>
     </types>
