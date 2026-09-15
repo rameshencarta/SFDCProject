@@ -174,6 +174,10 @@ export default class ChallengeRouter extends NavigationMixin(LightningElement) {
                 this.attemptsRemaining = result.attemptsRemaining;
                 this.showError = true;
             } else {
+                // Attempts exhausted — notify CFRIMS so manual_merge_required
+                // is set for the next login, then show Contact CFRG
+                triggerManualMerge({ userEmail: this.resolvedEmail || this.userEmail || null })
+                    .catch(e => console.warn('[challengeRouter] manualmerge failed:', e));
                 this.cfrgReason = 'failed_attempts';
                 this.currentOption = '5';
             }
