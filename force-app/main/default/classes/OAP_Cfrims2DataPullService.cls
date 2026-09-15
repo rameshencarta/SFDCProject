@@ -15,16 +15,21 @@ public with sharing class OAP_Cfrims2DataPullService {
         'applicant qc'          => 'Application Submitted',
         'initial processing'    => 'Testing & Screening',
         'intake management'     => 'Testing & Screening',
+        'ready for medical / interview' => 'Medical & Interview',
+        'ready for medical/interview'   => 'Medical & Interview',
         'rfmi'                  => 'Medical & Interview',
         'awaiting rmo decision' => 'Medical & Interview',
         'final processing'      => 'Security & Background Checks',
+        'ready for competition list' => 'Selection',
+        'ready for competion list'   => 'Selection',
+        'competition list'      => 'Selection',
         'rfcl'                  => 'Selection',
         'cl'                    => 'Selection',
         'selected'              => 'Job Offer',
         'offer tendered'        => 'Job Offer',
         'offer accepted'        => 'Offer Accepted',
-        'ready for enrollment'  => 'Enrolled',
-        'ready for enrolment'   => 'Enrolled',
+        'ready for enrolment'   => 'Offer Accepted',
+        'ready for enrollment'  => 'Offer Accepted',
         'enrolled'              => 'Enrolled'
     };
 
