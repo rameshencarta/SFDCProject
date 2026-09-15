@@ -3,30 +3,31 @@ public with sharing class OAP_Cfrims2DataPullService {
     /** Preferred Stage when CFRIMS reports application_completed = 1;
      *  falls back through STAGE_COMPLETED_FALLBACKS to whatever the org's
      *  restricted Stage picklist actually contains. */
-    @TestVisible private static final String STAGE_COMPLETED = 'Application Submitted';
+    @TestVisible private static final String STAGE_COMPLETED = 'Submitted';
     @TestVisible private static final List<String> STAGE_COMPLETED_FALLBACKS =
-        new List<String>{ STAGE_COMPLETED, 'File Submitted (Pending Review)', 'Submitted' };
+        new List<String>{ STAGE_COMPLETED, 'Application Submitted', 'File Submitted (Pending Review)' };
 
-    /** CFRIMS bin (lower-cased) → ApplicationForm.Stage. French labels come
-     *  from the Stage picklist translation, not from this map. */
+    /** CFRIMS bin (lower-cased) → ApplicationForm.Stage picklist API name.
+     *  Labels (Application Submitted, Testing & Screening, ...) and French
+     *  come from the Stage picklist translation, not from this map. */
     @TestVisible
     private static final Map<String, String> BIN_STAGE_MAP = new Map<String, String>{
-        'potential applicants'  => 'Application Submitted',
-        'applicant qc'          => 'Application Submitted',
-        'initial processing'    => 'Testing & Screening',
-        'intake management'     => 'Testing & Screening',
-        'ready for medical / interview' => 'Medical & Interview',
-        'ready for medical/interview'   => 'Medical & Interview',
-        'rfmi'                  => 'Medical & Interview',
-        'awaiting rmo decision' => 'Medical & Interview',
-        'final processing'      => 'Security & Background Checks',
+        'potential applicants'  => 'Submitted',
+        'applicant qc'          => 'Submitted',
+        'initial processing'    => 'Screening',
+        'intake management'     => 'Screening',
+        'ready for medical / interview' => 'Medical',
+        'ready for medical/interview'   => 'Medical',
+        'rfmi'                  => 'Medical',
+        'awaiting rmo decision' => 'Medical',
+        'final processing'      => 'Background Checks',
         'ready for competition list' => 'Selection',
         'ready for competion list'   => 'Selection',
         'competition list'      => 'Selection',
         'rfcl'                  => 'Selection',
         'cl'                    => 'Selection',
-        'selected'              => 'Job Offer',
-        'offer tendered'        => 'Job Offer',
+        'selected'              => 'Offer',
+        'offer tendered'        => 'Offer',
         'offer accepted'        => 'Offer Accepted',
         'ready for enrolment'   => 'Offer Accepted',
         'ready for enrollment'  => 'Offer Accepted',
