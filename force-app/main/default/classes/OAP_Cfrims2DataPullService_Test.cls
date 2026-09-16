@@ -103,8 +103,9 @@ private class OAP_Cfrims2DataPullService_Test {
     System.assertEquals('PSN-1', updated.OAP_Canadian_Service_Number__c);
     System.assertEquals('Success', updated.CFRIMS_Sync_Status__pc);
     System.assertNotEquals(null, updated.CFRIMS_Last_Dashboard_Sync__pc);
-    // Restricted picklist: the API name (M), never the label (Man)
-    System.assertEquals('M', updated.PersonGenderIdentity);
+    // Restricted picklist: whichever API name this org uses for Man (M or Man)
+    System.assertEquals(OAP_Cfrims2DataPullService.genderIdentityApiName('M'),
+      updated.PersonGenderIdentity);
     System.assertEquals('Male', updated.OAP_Sex_at_Birth__c);
     System.assertEquals('6135551111', updated.Phone);
     System.assertEquals('6135552222', updated.PersonOtherPhone);

@@ -646,9 +646,7 @@ public with sharing class OAP_Cfrims2DataPullService {
 
         String gender = readString(hsPersonal, 'pers_Gender');
         if (String.isNotBlank(gender)) {
-            String mapped = translateGender(gender);
-            String genderApi = mapped == null ? null
-                : picklistApiName(Account.PersonGenderIdentity.getDescribe(), mapped);
+            String genderApi = genderIdentityApiName(translateGender(gender));
             if (genderApi != null) {
                 acct.PersonGenderIdentity = genderApi;
             } else {
@@ -1151,6 +1149,25 @@ public with sharing class OAP_Cfrims2DataPullService {
         if (v == 'X' || v == 'D' || v == 'GENDER DIVERSE' || v == 'NON-BINARY'
             || v == 'NONBINARY' || v == 'OTHER' || v == 'DIVERSE') return 'D';
         return null;
+    }
+
+    /**
+     * Resolves a canonical gender code (M/W/D) to the PersonGenderIdentity API
+     * name active in this org — orgs differ (M/W/D vs Man/Woman/Gender Diverse).
+     */
+    private static final Map<String, String> GENDER_CODE_NAMES = new Map<String, String>{
+        'M' => 'Man', 'W' => 'Woman', 'D' => 'Gender Diverse'
+    };
+
+    @TestVisible
+    private static String genderIdentityApiName(String code) {
+        if (String.isBlank(code)) return null;
+        Schema.DescribeFieldResult dfr = Account.PersonGenderIdentity.getDescribe();
+        String api = picklistApiName(dfr, code);
+        if (api == null && GENDER_CODE_NAMES.containsKey(code)) {
+            api = picklistApiName(dfr, GENDER_CODE_NAMES.get(code));
+        }
+        return api;
     }
 
     private static void applyAddress(Account acct, Map<String, Object> addr, Boolean isMailing) {
