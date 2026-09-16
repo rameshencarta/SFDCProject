@@ -394,7 +394,9 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 ORDER BY CreatedDate DESC LIMIT 1
             ];
             if (!forms.isEmpty()) {
-                if (forms[0].Stage == 'Draft') return forms[0].Id;
+                if (String.isBlank(forms[0].Stage) || forms[0].Stage == 'Draft') {
+                    return forms[0].Id;
+                }
                 // newest form is submitted/closed: a Draft is needed (re-apply)
                 return OAP_Cfrims2DataPullService.ensureReapplyDraft(
                     forms[0].AccountId, forms[0].Id);

@@ -6,6 +6,8 @@
         <members>OAP_ApplicationFormHandler</members>
         <members>OAP_Cfrims2DashboardFetcher</members>
         <members>OAP_Cfrims2DataPullService</members>
+        <members>OAP_Cfrims2ChallengeControllerTest</members>
+        <members>OAP_Cfrims2DataPullService_Test</members>
         <name>ApexClass</name>
     </types>
     <types>
