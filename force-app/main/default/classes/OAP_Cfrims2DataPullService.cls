@@ -647,7 +647,15 @@ public with sharing class OAP_Cfrims2DataPullService {
         String gender = readString(hsPersonal, 'pers_Gender');
         if (String.isNotBlank(gender)) {
             String mapped = translateGender(gender);
-            if (mapped != null) acct.PersonGenderIdentity = mapped;
+            String genderApi = mapped == null ? null
+                : picklistApiName(Account.PersonGenderIdentity.getDescribe(), mapped);
+            if (genderApi != null) {
+                acct.PersonGenderIdentity = genderApi;
+            } else {
+                System.debug(LoggingLevel.WARN,
+                    'OAP_Cfrims2DataPullService: pers_Gender "' + gender
+                    + '" has no active PersonGenderIdentity value — left unchanged');
+            }
         }
 
         if (dashboardInfo != null && String.isNotBlank(dashboardInfo.alpha_nb))
