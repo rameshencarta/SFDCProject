@@ -884,8 +884,18 @@ private class OAP_Cfrims2ChallengeControllerTest {
         Assert.areEqual('SHOW_OPTIONS',
             verdictFor(new Map<String, Object>{
                 'require_merge' => 1, 'redirect_to_cfrg' => false,
+                'manual_merge_required' => 0, 'option1' => 1, 'phone' => '6135551234' }),
+            'require_merge=1 with no manual merge, no redirect and at least one '
+            + 'challenge option must show the options');
+    }
+
+    @IsTest
+    static void startSession_realMergePayload_requireMergeOne_noOptions_redirectsToOption5() {
+        Assert.areEqual('OPTION_5_REDIRECT',
+            verdictFor(new Map<String, Object>{
+                'require_merge' => 1, 'redirect_to_cfrg' => false,
                 'manual_merge_required' => 0 }),
-            'require_merge=1 with no manual merge and no redirect must show the options');
+            'require_merge=1 with no usable challenge option must fall back to option 5');
     }
 
     @IsTest
@@ -1252,7 +1262,8 @@ private class OAP_Cfrims2ChallengeControllerTest {
         Assert.areEqual(false, ctx.applicationCompleted,
             'The completed flag must be reset so the portal opens the application, not the dashboard');
         Assert.areEqual(true, ctx.openedForReapply, 'openedForReapply must be exposed to the LWC');
-        Assert.isNotNull(ctx.applicationFormId, 'A Draft form must be provided');
+        Assert.isNotNull(ctx.applicationFormId, 'A Draft form must be provided: '
+            + OAP_Cfrims2DataPullService.lastReapplyDraftError);
         Assert.areNotEqual(closed.Id, ctx.applicationFormId,
             'The closed form must not be reopened — a new Draft is expected');
 

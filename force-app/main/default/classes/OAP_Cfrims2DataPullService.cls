@@ -477,8 +477,11 @@ public with sharing class OAP_Cfrims2DataPullService {
      *  Returns the existing Draft when one already exists (never creates a
      *  second), otherwise clones the prefill fields of sourceFormId into a
      *  new Draft. Returns null when nothing could be created. */
+    @TestVisible private static String lastReapplyDraftError;
+
     public static Id ensureReapplyDraft(Id accountId, Id sourceFormId) {
         if (accountId == null) return null;
+        lastReapplyDraftError = null;
         try {
             List<ApplicationForm> drafts = [
                 SELECT Id FROM ApplicationForm
@@ -489,12 +492,14 @@ public with sharing class OAP_Cfrims2DataPullService {
             if (!drafts.isEmpty()) return drafts[0].Id;
 
             ApplicationForm draft = new ApplicationForm(
-                AccountId         = accountId,
-                Stage             = STAGE_DRAFT,
-                ApplicationStatus = STAGE_DRAFT,
-                UsageType         = USAGE_TYPE_DEFAULT,
-                CFRIMS_Synced__c  = false
+                AccountId        = accountId,
+                Stage            = STAGE_DRAFT,
+                UsageType        = USAGE_TYPE_DEFAULT,
+                CFRIMS_Synced__c = false
             );
+            String draftStatus = picklistApiName(
+                ApplicationForm.ApplicationStatus.getDescribe(), STAGE_DRAFT);
+            if (draftStatus != null) draft.ApplicationStatus = draftStatus;
 
             if (sourceFormId != null) {
                 String soql = 'SELECT ' + String.join(REAPPLY_PREFILL_FIELDS, ', ')
@@ -520,9 +525,11 @@ public with sharing class OAP_Cfrims2DataPullService {
             } catch (Exception logEx) {}
             return draft.Id;
         } catch (Exception e) {
+            lastReapplyDraftError = e.getTypeName() + ' | ' + e.getMessage()
+                + ' | ' + e.getStackTraceString();
             System.debug(LoggingLevel.ERROR,
                 'OAP_Cfrims2DataPullService.ensureReapplyDraft failed for '
-                + accountId + ': ' + e.getTypeName() + ' | ' + e.getMessage());
+                + accountId + ': ' + lastReapplyDraftError);
             logPullFailure('reapplyDraftCreate',
                 'Reapply Draft creation failed: ' + e.getMessage(),
                 String.valueOf(accountId), null);

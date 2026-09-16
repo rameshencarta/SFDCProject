@@ -496,7 +496,8 @@ private class OAP_Cfrims2DataPullService_Test {
     Id syncedId = OAP_Cfrims2DataPullService.cfrimsSyncedFormId(acct.Id);
     Test.stopTest();
 
-    System.assertNotEquals(null, draftId, 'A reapply Draft must be created');
+    System.assertNotEquals(null, draftId, 'A reapply Draft must be created: '
+      + OAP_Cfrims2DataPullService.lastReapplyDraftError);
     System.assertNotEquals(submitted.Id, draftId, 'The Draft must be a new form');
     System.assertEquals(submitted.Id, syncedId,
       'CFRIMS data must keep targeting the submitted form, never the reapply Draft');
@@ -519,6 +520,8 @@ private class OAP_Cfrims2DataPullService_Test {
     Id second = OAP_Cfrims2DataPullService.ensureReapplyDraft(acct.Id, closed.Id);
     Test.stopTest();
 
+    System.assertNotEquals(null, first, 'Draft creation failed: '
+      + OAP_Cfrims2DataPullService.lastReapplyDraftError);
     System.assertEquals(first, second,
       'A repeat login must reuse the unsynced Draft, not create a second one');
     System.assertEquals(2, [SELECT COUNT() FROM ApplicationForm WHERE AccountId = :acct.Id]);
