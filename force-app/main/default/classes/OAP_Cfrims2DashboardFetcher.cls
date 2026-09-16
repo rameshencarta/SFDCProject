@@ -431,14 +431,7 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
         
         Id resolvedFormId = applicationFormId;
         if (resolvedFormId == null) {
-            List<ApplicationForm> forms = [
-                SELECT Id FROM ApplicationForm
-                WHERE AccountId = :accountId
-                ORDER BY CreatedDate DESC LIMIT 1
-            ];
-            if (!forms.isEmpty()) {
-                resolvedFormId = forms[0].Id;
-            }
+            resolvedFormId = OAP_Cfrims2DataPullService.cfrimsSyncedFormId(accountId);
         }
        
         if (resolvedFormId != null) {

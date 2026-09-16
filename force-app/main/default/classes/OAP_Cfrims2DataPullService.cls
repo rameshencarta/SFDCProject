@@ -265,6 +265,10 @@ public with sharing class OAP_Cfrims2DataPullService {
             parseHandshakeCompletedFlag(handshake.get('rawBody')),
             extractBinName(rawDashboardBody));
 
+        if (parseHandshakeReapplyFlag(handshake.get('rawBody')) == true) {
+            ensureReapplyDraft(accountId, primaryFormId);
+        }
+
         // Mapping doc: occ_display_mos / occ_display_component → ApplicationForm.
         applyOccupationDisplay(primaryFormId, dashboard);
         
@@ -394,16 +398,134 @@ public with sharing class OAP_Cfrims2DataPullService {
    
     @TestVisible
     private static Boolean parseHandshakeCompletedFlag(String rawHandshakeBody) {
+        return parseHandshakeFlag(rawHandshakeBody, 'application_completed');
+    }
+
+    /** CFRIMS handshake opened_for_reapply = 1: the applicant's previous file
+     *  is closed and CFRIMS accepts a new application from them. */
+    public static Boolean parseHandshakeReapplyFlag(String rawHandshakeBody) {
+        return parseHandshakeFlag(rawHandshakeBody, 'opened_for_reapply');
+    }
+
+    private static Boolean parseHandshakeFlag(String rawHandshakeBody, String key) {
         if (String.isBlank(rawHandshakeBody)) return null;
         try {
             Map<String, Object> root =
                 (Map<String, Object>) JSON.deserializeUntyped(rawHandshakeBody);
-            Object flag = root.get('application_completed');
+            Object flag = root.get(key);
             if (flag == null) return null;
-            return String.valueOf(flag) == '1';
+            String s = String.valueOf(flag).toLowerCase();
+            return s == '1' || s == 'true';
         } catch (Exception e) {
             System.debug(LoggingLevel.WARN,
-                'parseHandshakeCompletedFlag: bad handshake body: ' + e.getMessage());
+                'parseHandshakeFlag(' + key + '): bad handshake body: ' + e.getMessage());
+            return null;
+        }
+    }
+
+    /** The ApplicationForm that mirrors the CFRIMS file for this account:
+     *  the newest non-Draft (or CFRIMS-synced) form, falling back to the
+     *  newest form of any stage when none has been submitted yet. Keeps a
+     *  reapply Draft from being overwritten by dashboard/handshake data. */
+    public static Id cfrimsSyncedFormId(Id accountId) {
+        if (accountId == null) return null;
+        List<ApplicationForm> forms = [
+            SELECT Id, Stage, CFRIMS_Synced__c
+            FROM ApplicationForm
+            WHERE AccountId = :accountId
+            ORDER BY CreatedDate DESC
+        ];
+        ApplicationForm picked = pickCfrimsSyncedForm(forms);
+        return picked == null ? null : picked.Id;
+    }
+
+    private static ApplicationForm pickCfrimsSyncedForm(List<ApplicationForm> newestFirst) {
+        if (newestFirst == null || newestFirst.isEmpty()) return null;
+        for (ApplicationForm f : newestFirst) {
+            if (f.Stage != STAGE_DRAFT || f.CFRIMS_Synced__c == true) return f;
+        }
+        return newestFirst[0];
+    }
+
+    /** Fields carried from the closed application into the reapply Draft so
+     *  the applicant does not re-enter unchanged answers. */
+    private static final List<String> REAPPLY_PREFILL_FIELDS = new List<String>{
+        'UsageType',
+        'OAP_Highest_Level_of_Education__c',
+        'OAP_Preferred_Language_Correspondence__c',
+        'OAP_Preferred_Language_for_Written_Exam__c',
+        'OAP_Preferred_Language_Interview__c',
+        'OAP_Indigenous_Summer_Program__c',
+        'OAP_Consent_Employment_Equity_Data__c',
+        'OAP_Self_Identify_Indigenous_Person__c',
+        'OAP_Self_Identify_Visible_Minority__c',
+        'OAP_Citizen_of_Country_other_than_Canada__c',
+        'OAP_Date_Canadian_PR_Granted__c',
+        'OAP_Permanent_Resident_Number__c',
+        'OAP_Criminal_Record_Active_Obligations__c',
+        'OAP_Prior_Service_in_Foreign_Military__c',
+        'OAP_Born_Outside_Canada__c',
+        'OAP_Ownership_of_Foreign_Assets__c',
+        'OAP_Outside_Canada_180_Consecutive_Days__c',
+        'OAP_Immediate_Family_Living_Abroad__c',
+        'OAP_Previously_Qualified_CAF_Occupation__c',
+        'OAP_Prior_Enrolment_Component_CAF__c',
+        'OAP_Interested_Reapply_Prior_Role__c'
+    };
+
+    /** Ensures the account has a Draft ApplicationForm to reapply with.
+     *  Returns the existing Draft when one already exists (never creates a
+     *  second), otherwise clones the prefill fields of sourceFormId into a
+     *  new Draft. Returns null when nothing could be created. */
+    public static Id ensureReapplyDraft(Id accountId, Id sourceFormId) {
+        if (accountId == null) return null;
+        try {
+            List<ApplicationForm> drafts = [
+                SELECT Id FROM ApplicationForm
+                WHERE AccountId = :accountId AND Stage = :STAGE_DRAFT
+                  AND CFRIMS_Synced__c = false
+                ORDER BY CreatedDate DESC LIMIT 1
+            ];
+            if (!drafts.isEmpty()) return drafts[0].Id;
+
+            ApplicationForm draft = new ApplicationForm(
+                AccountId         = accountId,
+                Stage             = STAGE_DRAFT,
+                ApplicationStatus = STAGE_DRAFT,
+                UsageType         = USAGE_TYPE_DEFAULT,
+                CFRIMS_Synced__c  = false
+            );
+
+            if (sourceFormId != null) {
+                String soql = 'SELECT ' + String.join(REAPPLY_PREFILL_FIELDS, ', ')
+                    + ' FROM ApplicationForm WHERE Id = :sourceFormId LIMIT 1';
+                List<ApplicationForm> sources = Database.query(soql);
+                if (!sources.isEmpty()) {
+                    for (String f : REAPPLY_PREFILL_FIELDS) {
+                        Object v = sources[0].get(f);
+                        if (v != null) draft.put(f, v);
+                    }
+                }
+            }
+
+            insert draft;
+            System.debug('OAP_Cfrims2DataPullService: reapply Draft ' + draft.Id
+                + ' created for account ' + accountId + ' from ' + sourceFormId);
+            try {
+                CFRIMS_Logger.CFRIMSlogAPI(
+                    'reapplyDraftCreated', dashboardEndpointForLog(), 'GET', '',
+                    'Created reapply Draft ' + draft.Id + ' from ' + sourceFormId,
+                    200, true, null, String.valueOf(accountId), String.valueOf(draft.Id));
+                CFRIMS_Logger.flush();
+            } catch (Exception logEx) {}
+            return draft.Id;
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR,
+                'OAP_Cfrims2DataPullService.ensureReapplyDraft failed for '
+                + accountId + ': ' + e.getTypeName() + ' | ' + e.getMessage());
+            logPullFailure('reapplyDraftCreate',
+                'Reapply Draft creation failed: ' + e.getMessage(),
+                String.valueOf(accountId), null);
             return null;
         }
     }
@@ -623,7 +745,7 @@ public with sharing class OAP_Cfrims2DataPullService {
         ];
 
         Boolean isNewForm = existing.isEmpty();
-        ApplicationForm form = isNewForm ? new ApplicationForm() : existing[0];
+        ApplicationForm form = isNewForm ? new ApplicationForm() : pickCfrimsSyncedForm(existing);
         form.AccountId = accountId;
         if (isNewForm) form.UsageType = USAGE_TYPE_DEFAULT;
 

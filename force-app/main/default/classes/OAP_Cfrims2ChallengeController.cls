@@ -88,6 +88,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
             CasePayload payload = extractMergePayloadFromHandshake(handshake.get('rawBody'));
            
             Boolean isSynthesised = false;
+            String mergeStateBody = null;
 
             if (payload == null) {
                                
@@ -125,13 +126,27 @@ public with sharing class OAP_Cfrims2ChallengeController {
                     throw new AuraHandledException('Identity service returned an unexpected response.');
                 } else {
                     payload = (CasePayload) JSON.deserialize(mergeResp.decryptedBody, CasePayload.class);
+                    mergeStateBody = mergeResp.decryptedBody;
                 }
             }
 
             Boolean accountSubmitted = applyAccountStateOverrides(userEmail, payload);
+
+            // Root-level handshake flag: CFRIMS closed the previous file and
+            // accepts a new application. Same body may arrive via checkMergeState.
+            Boolean reapplyOpen =
+                OAP_Cfrims2DataPullService.parseHandshakeReapplyFlag(handshake.get('rawBody')) == true
+                || OAP_Cfrims2DataPullService.parseHandshakeReapplyFlag(mergeStateBody) == true;
            
             String verdict;
-            if (payload.require_merge != 1) {
+            if (payload.require_merge != 1 && reapplyOpen) {
+                // Re-apply: the closed application stays as history; the
+                // applicant lands on /application with a fresh prefilled Draft.
+                payload.application_completed = 0;
+                verdict = 'NEW_APPLICANT';
+                System.debug('[startSession] opened_for_reapply=1 for ' + userEmail
+                    + ' — routing to a new Draft application.');
+            } else if (payload.require_merge != 1) {
                 
                 Boolean localDraft = latestFormIsDraftOrMissing(userEmail)
                     && !accountSubmitted;
@@ -194,14 +209,18 @@ public with sharing class OAP_Cfrims2ChallengeController {
                     OAP_CfrimsSessionUtil.persistSessionIfHandshaken(
                         acctToSave.Id, sessionToPersist, didHandshake);
                     
-                    if (verdict == 'COMPLETE_MERGE_AUTO' || verdict == 'ROUTE_BY_STATUS') {
-                        List<ApplicationForm> existingForms = [
-                            SELECT Id FROM ApplicationForm
-                            WHERE AccountId = :acctToSave.Id
-                            ORDER BY CreatedDate DESC LIMIT 1
-                        ];
-                       
-                        Id formId = existingForms.isEmpty() ? null : existingForms[0].Id;
+                    if (reapplyOpen && payload.require_merge != 1) {
+                        Id closedFormId =
+                            OAP_Cfrims2DataPullService.cfrimsSyncedFormId(acctToSave.Id);
+                        OAP_Cfrims2DataPullService.ensureReapplyDraft(
+                            acctToSave.Id, closedFormId);
+                        if (closedFormId != null) {
+                            // keep the closed file's tasks/status current, on the old form only
+                            OAP_Cfrims2DashboardFetcher.fetchAsync(
+                                acctToSave.Id, closedFormId, userEmail);
+                        }
+                    } else if (verdict == 'COMPLETE_MERGE_AUTO' || verdict == 'ROUTE_BY_STATUS') {
+                        Id formId = OAP_Cfrims2DataPullService.cfrimsSyncedFormId(acctToSave.Id);
                         OAP_Cfrims2DashboardFetcher.fetchAsync(acctToSave.Id, formId, userEmail);
                     }
                 }
@@ -216,6 +235,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
 
             ChallengeContext result = buildContext(verdict, payload);
             result.resolvedEmail = userEmail;
+            result.openedForReapply = reapplyOpen;
            
             result.accessToken   = handshake.get('accessToken');
             
@@ -369,12 +389,15 @@ public with sharing class OAP_Cfrims2ChallengeController {
     private static Id ensureDraftApplicationForm(String userEmail) {
         try {
             List<ApplicationForm> forms = [
-                SELECT Id FROM ApplicationForm
+                SELECT Id, Stage, AccountId FROM ApplicationForm
                 WHERE Account.PersonEmail = :userEmail
                 ORDER BY CreatedDate DESC LIMIT 1
             ];
             if (!forms.isEmpty()) {
-                return forms[0].Id;
+                if (forms[0].Stage == 'Draft') return forms[0].Id;
+                // newest form is submitted/closed: a Draft is needed (re-apply)
+                return OAP_Cfrims2DataPullService.ensureReapplyDraft(
+                    forms[0].AccountId, forms[0].Id);
             }
             List<Account> accs = [
                 SELECT Id FROM Account
@@ -757,6 +780,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
         @AuraEnabled public List<Cfrims2SecurityQuestion> securityQuestions;
         @AuraEnabled public String  referenceNumber;
         @AuraEnabled public Boolean applicationCompleted;
+        @AuraEnabled public Boolean openedForReapply;
         @AuraEnabled public String  applicationFormId;      
         @AuraEnabled public Boolean inCommunity;
         // Stored on Account after login — reused by sendApplicationToCFRIMS
