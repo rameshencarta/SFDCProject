@@ -976,10 +976,9 @@ public class OAP_ApplicationFormHandler {
     }
     @TestVisible private static String translateGender(String sfValue) {
         if (String.isBlank(sfValue)) return '';
-        String v = sfValue.trim().toUpperCase();
-        if (v == 'MAN'   || v == 'M')          return 'M';
-        if (v == 'WOMAN' || v == 'W')          return 'F';
-        if (v == 'GENDER DIVERSE' || v == 'D') return 'I';
+        if (sfValue == 'Man')            return 'M';
+        if (sfValue == 'Woman')          return 'F';
+        if (sfValue == 'Gender Diverse') return 'I';
         return '';
     }
     @TestVisible private static String translateLanguageToCode(String sfValue) {
