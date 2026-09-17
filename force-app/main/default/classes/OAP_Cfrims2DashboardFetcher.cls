@@ -11,18 +11,11 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
     @TestVisible private static final Integer MAX_ATTEMPTS = 5;
     
    
+    /** OAP Status Codes that mean the application exists in CFRIMS
+     *  (10 Submitted … 80 Enrolled); the code → step mapping itself lives in
+     *  OAP_Cfrims2DataPullService so both pull paths agree. */
     @TestVisible private static final Set<String> SUBMITTED_STATUS_CODES =
-        new Set<String>{ '20', '30', '40', '50', '60', '70' };
-
-    @TestVisible private static final Map<String, String> APPLICANT_STATUS_MAP =
-        new Map<String, String>{
-            '20' => 'Submitted',
-            '30' => 'Assigned',
-            '40' => 'Under Review',
-            '50' => 'On Hold',
-            '60' => 'Successful',
-            '70' => 'Unsuccessful'
-        };
+        new Set<String>{ '10', '20', '30', '40', '50', '60', '70', '80' };
 
     private final Id      accountId;
     private final Id      applicationFormId;
@@ -535,20 +528,14 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
                 form.Stage = OAP_Cfrims2DataPullService.stageCompleted();
                 formChanged = true;
             }
+            String prevStage  = form.Stage;
+            String prevStatus = form.ApplicationStatus;
+            OAP_Cfrims2DataPullService.applyStatusCodeTransformation(form, statusCode);
             String binName = OAP_Cfrims2DataPullService.extractBinName(rawBody);
             if (String.isNotBlank(binName)) {
-                String prevStage  = form.Stage;
-                String prevStatus = form.ApplicationStatus;
                 OAP_Cfrims2DataPullService.applyBinTransformation(form, binName);
-                if (form.Stage != prevStage || form.ApplicationStatus != prevStatus) {
-                    formChanged = true;
-                }
             }
-            String mappedStatus = APPLICANT_STATUS_MAP.get(statusCode);
-            if (mappedStatus != null
-                    && (String.isBlank(form.ApplicationStatus)
-                        || form.ApplicationStatus == 'Draft')) {
-                form.ApplicationStatus = mappedStatus;
+            if (form.Stage != prevStage || form.ApplicationStatus != prevStatus) {
                 formChanged = true;
             }
             if (formChanged) {

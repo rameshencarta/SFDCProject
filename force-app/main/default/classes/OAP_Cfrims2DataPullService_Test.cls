@@ -607,6 +607,44 @@ private class OAP_Cfrims2DataPullService_Test {
   }
 
   @isTest
+  static void stageForStatusCode_mapsOapStatusCodes() {
+    Map<String, String> expected = new Map<String, String>{
+      '10' => 'Submitted', '20' => 'Screening', '30' => 'Medical',
+      '40' => 'Background Checks', '50' => 'Selection', '60' => 'Offer',
+      '70' => 'Offer Accepted', '80' => 'Enrolled'
+    };
+    for (String code : expected.keySet()) {
+      String stage = OAP_Cfrims2DataPullService.stageForStatusCode(code);
+      if (stage != null) {
+        System.assertEquals(expected.get(code), stage, 'code ' + code);
+      }
+    }
+    System.assertEquals(null, OAP_Cfrims2DataPullService.stageForStatusCode('0'));
+    System.assertEquals(null, OAP_Cfrims2DataPullService.stageForStatusCode('99'));
+    System.assertEquals(null, OAP_Cfrims2DataPullService.stageForStatusCode(null));
+  }
+
+  @isTest
+  static void applyStatusCodeTransformation_setsStepOnSubmittedOnly() {
+    ApplicationForm draft = new ApplicationForm(Stage = 'Draft');
+    OAP_Cfrims2DataPullService.applyStatusCodeTransformation(draft, '30');
+    System.assertEquals('Draft', draft.Stage, 'Draft forms must not advance');
+
+    ApplicationForm submitted = new ApplicationForm(Stage = 'Submitted');
+    OAP_Cfrims2DataPullService.applyStatusCodeTransformation(submitted, '99');
+    System.assertEquals('Submitted', submitted.Stage, 'Unknown codes leave Stage untouched');
+
+    String expected = OAP_Cfrims2DataPullService.stageForStatusCode('40');
+    OAP_Cfrims2DataPullService.applyStatusCodeTransformation(submitted, '40');
+    if (expected != null) {
+      System.assertEquals(expected, submitted.Stage);
+      System.assertEquals(expected, submitted.ApplicationStatus,
+        'ApplicationStatus follows the same OAP step');
+    }
+    OAP_Cfrims2DataPullService.applyStatusCodeTransformation(null, '40');
+  }
+
+  @isTest
   static void applyBinTransformation_skipsDraftAndUnknownBin() {
     ApplicationForm draft = new ApplicationForm(Stage = 'Draft', ApplicationStatus = 'Draft');
     OAP_Cfrims2DataPullService.applyBinTransformation(draft, 'Initial Processing');

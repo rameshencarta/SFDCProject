@@ -54,8 +54,26 @@ public with sharing class OAP_Cfrims2DataPullService {
     @TestVisible private static final String USAGE_TYPE_DEFAULT = 'EmployeeRecruitment';
 
     
+    /** CFRIMS OAP Status Code (applicant_status) → ApplicationForm.Stage API
+     *  name. One code covers one or more bins:
+     *  10 Potential Applicants / Applicant QC, 20 Initial Processing / Intake
+     *  management, 30 RFMI / Awaiting RMO Decision, 40 Final Processing,
+     *  50 RFCL / CL, 60 Selected / Offer tendered, 70 Offer Accepted / Ready
+     *  For Enrollment, 80 Enrolled. */
+    @TestVisible
+    private static final Map<String, String> STATUS_CODE_STAGE_MAP = new Map<String, String>{
+        '10' => 'Submitted',
+        '20' => 'Screening',
+        '30' => 'Medical',
+        '40' => 'Background Checks',
+        '50' => 'Selection',
+        '60' => 'Offer',
+        '70' => 'Offer Accepted',
+        '80' => 'Enrolled'
+    };
+
     @TestVisible private static final Set<String> SUBMITTED_STATUS_CODES =
-        new Set<String>{ '20', '30', '40', '50', '60', '70' };
+        STATUS_CODE_STAGE_MAP.keySet();
 
     @TestVisible
     private static final Map<String, String> PREV_SERVICE_MAP = new Map<String, String>{
@@ -88,13 +106,14 @@ public with sharing class OAP_Cfrims2DataPullService {
     @TestVisible
     private static final Map<String, String> APPLICANT_STATUS_MAP = new Map<String, String>{
             '0'   => 'Draft',
-            '10'  => 'Draft',
-            '20'  => 'Submitted',
-            '30'  => 'Assigned',
-            '40'  => 'Under Review',
-            '50'  => 'On Hold',
-            '60'  => 'Successful',
-            '70'  => 'Unsuccessful'
+            '10'  => 'Submitted',
+            '20'  => 'Screening',
+            '30'  => 'Medical',
+            '40'  => 'Background Checks',
+            '50'  => 'Selection',
+            '60'  => 'Offer',
+            '70'  => 'Offer Accepted',
+            '80'  => 'Enrolled'
         };
 
     private static Boolean cachedIsSandbox;
@@ -895,11 +914,8 @@ public with sharing class OAP_Cfrims2DataPullService {
         form.CFRIMS_Synced__c          = true;
         form.CFRIMS_Last_Sync_Error__c = null;
 
-        if (dashboard != null && String.isNotBlank(dashboard.applicant_status)) {
-            String mappedStatus = APPLICANT_STATUS_MAP.get(dashboard.applicant_status);
-            if (mappedStatus != null) form.ApplicationStatus = mappedStatus;
-        }
-
+        applyStatusCodeTransformation(form,
+            dashboard == null ? null : dashboard.applicant_status);
         applyBinTransformation(form, binName);
 
         try {
@@ -1043,6 +1059,41 @@ public with sharing class OAP_Cfrims2DataPullService {
             System.debug(LoggingLevel.WARN,
                 'OAP_Cfrims2DataPullService: no OAP step mapped for bin "' + binName + '"');
         }
+    }
+
+    /** OAP Status Code → Stage + ApplicationStatus (same OAP step value).
+     *  Draft forms and unknown codes are left untouched. A bin name, when
+     *  CFRIMS supplies one, is applied afterwards and takes precedence. */
+    public static void applyStatusCodeTransformation(ApplicationForm form, String statusCode) {
+        if (form == null || String.isBlank(statusCode)) return;
+        if (form.Stage == STAGE_DRAFT) {
+            if (String.isBlank(form.ApplicationStatus)) {
+                String draftStatus = picklistApiName(
+                    ApplicationForm.ApplicationStatus.getDescribe(), STAGE_DRAFT);
+                if (draftStatus != null) form.ApplicationStatus = draftStatus;
+            }
+            return;
+        }
+        String stage = stageForStatusCode(statusCode);
+        if (stage == null) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: no OAP step mapped for applicant_status "'
+                + statusCode + '"');
+            return;
+        }
+        form.Stage = stage;
+        String statusValue = picklistApiName(
+            ApplicationForm.ApplicationStatus.getDescribe(),
+            APPLICANT_STATUS_MAP.get(statusCode.trim()));
+        if (statusValue != null) form.ApplicationStatus = statusValue;
+    }
+
+    /** STATUS_CODE_STAGE_MAP lookup, validated against the active Stage picklist. */
+    public static String stageForStatusCode(String statusCode) {
+        if (String.isBlank(statusCode)) return null;
+        String target = STATUS_CODE_STAGE_MAP.get(statusCode.trim());
+        if (target == null) return null;
+        return picklistApiName(ApplicationForm.Stage.getDescribe(), target);
     }
 
     /** BIN_STAGE_MAP lookup, validated against the org's active Stage picklist;
