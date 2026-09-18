@@ -1,0 +1,169 @@
+/* ============================================================
+   challengeOptionsList.css
+   Identity verification option picker.
+   States: recommended default option card, "More options" toggle,
+   expanded other-options list.
+   Design intent: calm authority — this is a trust moment.
+   Navy left-accent on the recommended card, no decorative noise.
+   ============================================================ */
+
+:host {
+    display: block;
+    font-family: 'Salesforce Sans', Arial, sans-serif;
+}
+
+/* ── Outer card ──────────────────────────────────────────── */
+/* Overrides slds-box to give it a defined max-width and
+   a subtle top border in CAF navy to anchor the panel */
+.slds-box.slds-p-around_medium {
+    background: #ffffff;
+    border: 1px solid #dddbda;
+    border-top: 3px solid #1f3864;
+    border-radius: 4px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    animation: panelIn 0.2s ease-out both;
+}
+
+/* ── Heading ─────────────────────────────────────────────── */
+.slds-text-heading_medium {
+    color: #1f3864;
+    font-size: 1.125rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+/* ── Subtitle ────────────────────────────────────────────── */
+.slds-text-body_small.slds-text-color_weak {
+    color: #54698d;
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+/* ── Recommended option card ─────────────────────────────── */
+/* The slds-box_x-small + slds-theme_shade box that shows the
+   default/recommended option — gets a left navy stripe and
+   a light navy tint to distinguish it from the outer card */
+.slds-box.slds-box_x-small.slds-theme_shade {
+    background: #f0f4fa;
+    border: 1px solid #c5d0e6;
+    border-left: 4px solid #1f3864;
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    transition: background 0.15s ease;
+}
+
+.slds-box.slds-box_x-small.slds-theme_shade:hover {
+    background: #e3ecf7;
+}
+
+/* Icon container inside the recommended card */
+.slds-box.slds-box_x-small.slds-theme_shade .slds-grid {
+    align-items: center;
+}
+
+.slds-box.slds-box_x-small.slds-theme_shade .slds-icon_container {
+    background: #1f3864;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.slds-box.slds-box_x-small.slds-theme_shade strong {
+    color: #1f3864;
+    font-size: 0.9375rem;
+    font-weight: 600;
+}
+
+/* "Recommended" label below the option name */
+.slds-box.slds-box_x-small.slds-theme_shade p {
+    color: #2e844a;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 0.25rem;
+}
+
+/* ── Continue button ─────────────────────────────────────── */
+/* Full-width brand button below recommended card */
+lightning-button[stretch],
+.slds-m-bottom_small lightning-button {
+    display: block;
+    width: 100%;
+}
+
+/* ── More options toggle ─────────────────────────────────── */
+lightning-button[variant="base"] {
+    color: #1f3864;
+    font-size: 0.875rem;
+}
+
+/* ── Other options list ──────────────────────────────────── */
+.slds-has-dividers_around-space {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    border: 1px solid #dddbda;
+    border-radius: 4px;
+    overflow: hidden;
+    animation: expandIn 0.18s ease-out both;
+}
+
+.slds-item {
+    border-bottom: 1px solid #f3f2f1;
+    transition: background 0.12s ease;
+}
+
+.slds-item:last-child {
+    border-bottom: none;
+}
+
+.slds-item:hover {
+    background: #f3f7fd;
+}
+
+.slds-item .slds-text-link {
+    display: block;
+    padding: 0.625rem 1rem;
+    color: #0070d2;
+    font-size: 0.9375rem;
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.12s ease;
+}
+
+.slds-item .slds-text-link:hover {
+    color: #1f3864;
+    text-decoration: underline;
+}
+
+/* ── Animations ──────────────────────────────────────────── */
+@keyframes panelIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes expandIn {
+    from { opacity: 0; max-height: 0; }
+    to   { opacity: 1; max-height: 400px; }
+}
+
+/* ── Reduced motion ──────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    .slds-box.slds-p-around_medium,
+    .slds-has-dividers_around-space {
+        animation: none;
+    }
+}
+
+/* ── Mobile ──────────────────────────────────────────────── */
+@media (max-width: 480px) {
+    .slds-box.slds-p-around_medium {
+        padding: 1.25rem 1rem;
+    }
+}

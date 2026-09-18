@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomLabels xmlns="http://soap.sforce.com/2006/04/metadata">
+    <labels>
+        <fullName>OAP_Challenge_VerifyIdentity_Title</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: VerifyIdentity Title</shortDescription>
+        <value>Verify your identity</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_SelectMethod</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: SelectMethod</shortDescription>
+        <value>Select an identity verification method to continue.</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Recommended</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Recommended</shortDescription>
+        <value>Recommended</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Continue</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Continue</shortDescription>
+        <value>Continue</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_OtherOptions</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: OtherOptions</shortDescription>
+        <value>Other Verification options</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_HideOtherOptions</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: HideOtherOptions</shortDescription>
+        <value>Hide other identity verification options</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Opt1_SendCode</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Opt1 SendCode</shortDescription>
+        <value>Send a verification code to the phone number on file</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Opt2_SecurityQuestion</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Opt2 SecurityQuestion</shortDescription>
+        <value>Verify with your security question</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Opt3_ServiceNumber</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Opt3 ServiceNumber</shortDescription>
+        <value>Verify with service number and date of birth</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Opt4_BirthDetails</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Opt4 BirthDetails</shortDescription>
+        <value>Verify with birth details (Last name, date of birth, and city of birth)</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Opt5_GetHelp</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Opt5 GetHelp</shortDescription>
+        <value>Contact CFRG</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Verify</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Verify</shortDescription>
+        <value>Verify</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_ChooseAnotherMethod</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: ChooseAnotherMethod</shortDescription>
+        <value>Choose another verification method</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_DateOfBirth</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: DateOfBirth</shortDescription>
+        <value>Date of birth</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_DateOfBirth_Required</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: DateOfBirth Required</shortDescription>
+        <value>Date of birth is required</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_SecurityQuestions_Title</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: SecurityQuestions Title</shortDescription>
+        <value>Verify with your security questions</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_SecurityQuestions</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: SecurityQuestions</shortDescription>
+        <value>Security questions</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Answer</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Answer</shortDescription>
+        <value>Answer</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_UseDifferentQuestion</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: UseDifferentQuestion</shortDescription>
+        <value>Use a different security question</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_ServiceNumber</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: ServiceNumber</shortDescription>
+        <value>Service number</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_ServiceNumber_Required</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: ServiceNumber Required</shortDescription>
+        <value>Service number is required</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_BirthDetails_Title</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: BirthDetails Title</shortDescription>
+        <value>Verify using your birth details</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_LastNameBirthCert</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: LastNameBirthCert</shortDescription>
+        <value>Last name on birth certificate</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_LastName_Required</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: LastName Required</shortDescription>
+        <value>Last name is required</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_CityOfBirth</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: CityOfBirth</shortDescription>
+        <value>City of birth</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_CityOfBirth_Required</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: CityOfBirth Required</shortDescription>
+        <value>City of birth is required</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_GetHelp_Intro</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: GetHelp Intro</shortDescription>
+        <value>A recruiter will help you complete identity verification manually.</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_GetHelp_SystemRedirect</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: GetHelp SystemRedirect</shortDescription>
+        <value>Based on your record, we need to verify your identity manually. A recruiter will help you complete the merge.</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_GetHelp_PendingReview</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: GetHelp PendingReview</shortDescription>
+        <value>Your case is currently under review by CFRG. Please contact a recruiter to check the status.</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_GetHelp_AttemptsExhausted</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: GetHelp AttemptsExhausted</shortDescription>
+        <value>We weren&#x27;t able to verify your identity automatically. A recruiter will help you complete the merge.</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_PhoneNumber</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: PhoneNumber</shortDescription>
+        <value>Phone number</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_HoursOfOperation</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: HoursOfOperation</shortDescription>
+        <value>Hours of operation</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Reference</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Reference</shortDescription>
+        <value>Reference</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_GetHelp_ReferenceHint</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: GetHelp ReferenceHint</shortDescription>
+        <value>Have your application reference number ready so the recruiter can locate your record quickly.</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_FindRecruiter</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: FindRecruiter</shortDescription>
+        <value>Find a recruiter</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Sms_Title</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Sms Title</shortDescription>
+        <value>Enter your code</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Sms_Intro</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Sms Intro</shortDescription>
+        <value>A 6-digit code was sent to {0}. It expires in 5 minutes.</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Sms_CodeLabel</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Sms CodeLabel</shortDescription>
+        <value>Verification code</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Sms_CodePattern</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Sms CodePattern</shortDescription>
+        <value>Enter the 6-digit code</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Sms_VerifyCode</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Sms VerifyCode</shortDescription>
+        <value>Verify code</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Sms_Resend</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Sms Resend</shortDescription>
+        <value>Resend code</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Sms_Sending</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Sms Sending</shortDescription>
+        <value>Sending code</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_HoursOfOperation_Value</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: HoursOfOperation Value</shortDescription>
+        <value>Mon–Fri 8am–6pm</value>
+    </labels>
+    <labels>
+        <fullName>OAP_Challenge_Sms_SendFailed</fullName>
+        <categories>OAP,Challenge</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Challenge: Sms SendFailed</shortDescription>
+        <value>We could not send the code. Please try again or choose a different option.</value>
+    </labels>
+</CustomLabels>
