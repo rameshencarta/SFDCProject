@@ -834,16 +834,23 @@ public with sharing class OAP_Cfrims2DataPullService {
             readString(hsPersonal, 'language_correspondence'),
             readString(hsPersonal, 'language_official')
         });
-        if (langCorrespondence == 'E' || langCorrespondence == 'F')
-            form.OAP_Preferred_Language_Correspondence__c = langCorrespondence;
+        String langCorrApi = languageApiName(
+            ApplicationForm.OAP_Preferred_Language_Correspondence__c.getDescribe(),
+            langCorrespondence);
+        if (langCorrApi != null)
+            form.OAP_Preferred_Language_Correspondence__c = langCorrApi;
 
-        String langExam = readString(hsPersonal, 'language_exam');
-        if (langExam == 'E' || langExam == 'F')
-            form.OAP_Preferred_Language_for_Written_Exam__c = langExam;
+        String langExamApi = languageApiName(
+            ApplicationForm.OAP_Preferred_Language_for_Written_Exam__c.getDescribe(),
+            readString(hsPersonal, 'language_exam'));
+        if (langExamApi != null)
+            form.OAP_Preferred_Language_for_Written_Exam__c = langExamApi;
 
-        String langInterview = readString(hsPersonal, 'language_interview');
-        if (langInterview == 'E' || langInterview == 'F')
-            form.OAP_Preferred_Language_Interview__c = langInterview;
+        String langInterviewApi = languageApiName(
+            ApplicationForm.OAP_Preferred_Language_Interview__c.getDescribe(),
+            readString(hsPersonal, 'language_interview'));
+        if (langInterviewApi != null)
+            form.OAP_Preferred_Language_Interview__c = langInterviewApi;
 
         String rawEducationLevel = readString(hsPersonal, 'education_level');
         if (String.isNotBlank(rawEducationLevel)) {
@@ -1217,6 +1224,34 @@ public with sharing class OAP_Cfrims2DataPullService {
         String api = picklistApiName(dfr, code);
         if (api == null && GENDER_CODE_NAMES.containsKey(code)) {
             api = picklistApiName(dfr, GENDER_CODE_NAMES.get(code));
+        }
+        return api;
+    }
+
+    /**
+     * Resolves a CFRIMS language code (E/F) to the API name active on the
+     * given picklist — orgs differ (E/F vs English/French).
+     */
+    private static final Map<String, String> LANGUAGE_CODE_NAMES = new Map<String, String>{
+        'E' => 'English', 'F' => 'French'
+    };
+
+    @TestVisible
+    private static String languageApiName(Schema.DescribeFieldResult dfr, String rawValue) {
+        if (String.isBlank(rawValue)) return null;
+        String code = rawValue.trim().toUpperCase();
+        if (!LANGUAGE_CODE_NAMES.containsKey(code)) {
+            for (String k : LANGUAGE_CODE_NAMES.keySet()) {
+                if (LANGUAGE_CODE_NAMES.get(k).equalsIgnoreCase(code)) code = k;
+            }
+        }
+        if (!LANGUAGE_CODE_NAMES.containsKey(code)) return null;
+        String api = picklistApiName(dfr, code);
+        if (api == null) api = picklistApiName(dfr, LANGUAGE_CODE_NAMES.get(code));
+        if (api == null) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: no active ' + dfr.getName()
+                + ' value for language "' + rawValue + '"');
         }
         return api;
     }
