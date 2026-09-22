@@ -101,7 +101,7 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
             Map<String, Object> dash =
                 (Map<String, Object>) JSON.deserializeUntyped(dashres.decryptedBody);
 
-           
+            if (didHandshake) applyHandshakeNames(accountId, session);
             new OAP_Cfrims2DashboardFetcher(accountId, applicationFormId, email)
                 .applyDashboardToSalesforce(dash, dashres.decryptedBody);
 
@@ -202,6 +202,7 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
             return;
         }
         
+        if (didHandshake) applyHandshakeNames(accountId, session);
         applyDashboardToSalesforce(dash, dashres.decryptedBody);
 
        
@@ -373,6 +374,50 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
         }
     }
 
+    /**
+     * The Dashboard only carries the surname; given/preferred name changes made in
+     * CFRIMS ID are only visible in the handshake's applicant_data.personal_info,
+     * so they are applied whenever this fetcher performed a handshake.
+     */
+    @TestVisible
+    private static void applyHandshakeNames(Id accountId, Map<String, String> session) {
+        if (session == null || String.isBlank(session.get('rawBody'))) return;
+        Map<String, Object> personal;
+        try {
+            Map<String, Object> root =
+                (Map<String, Object>) JSON.deserializeUntyped(session.get('rawBody'));
+            Map<String, Object> applicantData = (Map<String, Object>) root.get('applicant_data');
+            personal = applicantData == null
+                ? null : (Map<String, Object>) applicantData.get('personal_info');
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DashboardFetcher.applyHandshakeNames: bad handshake body: '
+                + e.getMessage());
+            return;
+        }
+        if (personal == null) return;
+
+        Account acct    = new Account(Id = accountId);
+        Boolean changed = false;
+        String given     = stringOf(personal.get('pers_GivenName'));
+        String surname   = stringOf(personal.get('pers_Surname'));
+        String preferred = stringOf(personal.get('pers_Preferredname'));
+        if (String.isNotBlank(given))     { acct.FirstName = given;                 changed = true; }
+        if (String.isNotBlank(surname))   { acct.LastName = surname;                changed = true; }
+        if (String.isNotBlank(preferred)) { acct.OAP_Preferred_Name__c = preferred; changed = true; }
+        if (!changed) return;
+        try {
+            update acct;
+        } catch (Exception updateEx) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DashboardFetcher.applyHandshakeNames: ' + updateEx.getMessage());
+        }
+    }
+
+    private static String stringOf(Object v) {
+        return v == null ? null : String.valueOf(v).trim();
+    }
+
     @TestVisible
     private void applyDashboardToSalesforce(Map<String, Object> dash, String rawBody) {
         Account acct    = new Account(Id = accountId);
@@ -383,6 +428,11 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
             String alphaNb = (String) personalInfo.get('alpha_nb');
             if (String.isNotBlank(alphaNb)) {
                 acct.CFRIMS_Alpha_Number__pc = alphaNb;
+                changed = true;
+            }
+            String surname = stringOf(personalInfo.get('pers_Surname'));
+            if (String.isNotBlank(surname)) {
+                acct.LastName = surname;
                 changed = true;
             }
         }

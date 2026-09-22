@@ -672,6 +672,33 @@ private class OAP_Cfrims2DataPullService_Test {
   }
 
   @isTest
+  static void dashboardRefresh_updatesNamesFromCfrims() {
+    Account acct = [SELECT Id FROM Account WHERE PersonEmail = :SUCCESS_EMAIL LIMIT 1];
+
+    Map<String, String> session = new Map<String, String>{
+      'accessToken' => 'tok',
+      'rawBody' => '{"applicant_data":{"personal_info":{'
+        + '"pers_GivenName":"Renamed","pers_Surname":"Person","pers_Preferredname":"Ren"}}}'
+    };
+    OAP_Cfrims2DashboardFetcher.applyHandshakeNames(acct.Id, session);
+
+    Account afterHs = [SELECT FirstName, LastName, OAP_Preferred_Name__c
+                       FROM Account WHERE Id = :acct.Id];
+    System.assertEquals('Renamed', afterHs.FirstName);
+    System.assertEquals('Person', afterHs.LastName);
+    System.assertEquals('Ren', afterHs.OAP_Preferred_Name__c);
+
+    Map<String, Object> dash = (Map<String, Object>) JSON.deserializeUntyped(
+      '{"personal_info":{"pers_Surname":"Dashboarded","alpha_nb":"A1"},"applicant_status":"10"}');
+    new OAP_Cfrims2DashboardFetcher(acct.Id, null, SUCCESS_EMAIL)
+      .applyDashboardToSalesforce(dash, JSON.serialize(dash));
+
+    Account afterDash = [SELECT FirstName, LastName FROM Account WHERE Id = :acct.Id];
+    System.assertEquals('Dashboarded', afterDash.LastName);
+    System.assertEquals('Renamed', afterDash.FirstName, 'dashboard carries no given name');
+  }
+
+  @isTest
   static void statusCodeZeroOrBinZero_forcesDraft() {
     System.assert(OAP_Cfrims2DataPullService.isDraftStatusCode('0'));
     System.assert(OAP_Cfrims2DataPullService.isDraftStatusCode(' 0 '));
