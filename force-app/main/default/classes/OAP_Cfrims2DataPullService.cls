@@ -216,6 +216,7 @@ public with sharing class OAP_Cfrims2DataPullService {
     }
 
     private static void pullWithHandshake(String email, Map<String, String> handshake) {
+        handshake = ensureApplicantData(email, handshake);
         OAP_CFRIMS_ApiClient.DashboardResponse resp = OAP_CFRIMS_ApiClient.getDashboard(handshake, email);
 
         // Log the dashboard API call — creates CFRIMS API Log History record
@@ -563,6 +564,36 @@ public with sharing class OAP_Cfrims2DataPullService {
         }
     }
 
+    /**
+     * A session built from a reused access token carries no handshake body
+     * (rawBody = null), so applicant_data — the only source of Personal
+     * Information (sex, birth place, citizenship, language…) — is absent.
+     * Re-handshake in that case so the import gets the full applicant record.
+     */
+    @TestVisible
+    private static Map<String, String> ensureApplicantData(
+            String email, Map<String, String> handshake) {
+        if (handshake == null) return null;
+        if (parseHandshakeApplicantData(handshake.get('rawBody')) != null) return handshake;
+        try {
+            Map<String, String> fresh = OAP_CFRIMS_ApiClient.performHandshake(
+                email, handshake.get('userIdentifier'), handshake.get('clientSessionId'));
+            if (fresh != null && String.isNotBlank(fresh.get('accessToken'))
+                    && parseHandshakeApplicantData(fresh.get('rawBody')) != null) {
+                OAP_Cfrims2SessionCache.putHandshake(UserInfo.getUserId(), fresh);
+                return fresh;
+            }
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: re-handshake returned no applicant_data — '
+                + 'Personal Information will not be refreshed');
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: re-handshake for applicant_data failed: '
+                + e.getMessage());
+        }
+        return handshake;
+    }
+
     private static Map<String, Object> parseHandshakeApplicantData(String rawHandshakeBody) {
         if (String.isBlank(rawHandshakeBody)) return null;
         try {
@@ -593,7 +624,11 @@ public with sharing class OAP_Cfrims2DataPullService {
                    OAP_Canadian_Service_Number__c,
                    PersonBirthdate, LastName, FirstName,
                    OAP_Birth_City__c, OAP_Birth_Country__c,
+                   OAP_Birth_Province_State__c,
                    OAP_Sex_at_Birth__c, PersonGenderIdentity,
+                   Primary_Language__c, OAP_Citizenship__c,
+                   Permanent_Resident_Number__c,
+                   Permanent_Resident_Effective_Date__c,
                    OAP_Preferred_Name__c,
                    OAP_Twin_Siblings__c,
                    Phone, PersonOtherPhone,
@@ -664,11 +699,48 @@ public with sharing class OAP_Cfrims2DataPullService {
             }
         }
 
+        String birthProvince = readString(hsPersonal, 'pers_DateOfBirthProvince');
+        if (String.isNotBlank(birthProvince)) {
+            String mappedProvince = resolvePicklistOrText(
+                Account.OAP_Birth_Province_State__c.getDescribe(),
+                new List<String>{
+                    OAP_CfrimsAddressHelper.provinceName(birthProvince), birthProvince });
+            if (mappedProvince != null) acct.OAP_Birth_Province_State__c = mappedProvince;
+        }
+
         String sex = readString(hsPersonal, 'pers_Sex');
         if (String.isNotBlank(sex)) {
             String mapped = translateSex(sex);
-            if (mapped != null) acct.OAP_Sex_at_Birth__c = mapped;
+            String sexApi = mapped == null ? null : resolvePicklistOrText(
+                Account.OAP_Sex_at_Birth__c.getDescribe(),
+                new List<String>{ mapped, sex });
+            if (sexApi != null) {
+                acct.OAP_Sex_at_Birth__c = sexApi;
+            } else {
+                System.debug(LoggingLevel.WARN,
+                    'OAP_Cfrims2DataPullService: pers_Sex "' + sex
+                    + '" has no active OAP_Sex_at_Birth__c value — left unchanged');
+            }
         }
+
+        String primaryLangApi = languageApiName(
+            Account.Primary_Language__c.getDescribe(),
+            readString(hsPersonal, 'language_official'));
+        if (primaryLangApi != null) acct.Primary_Language__c = primaryLangApi;
+
+        Map<String, Object> hsCit = readMap(handshakeApplicantData, 'citizenship');
+        String citizenshipApi = citizenshipApiName(
+            readBooleanFlag(hsCit, 'citizenship_canadian'),
+            readBooleanFlag(hsCit, 'citizenship_permanent'));
+        if (citizenshipApi != null) acct.OAP_Citizenship__c = citizenshipApi;
+
+        String prNumber = readString(hsCit, 'permanent_resident_number');
+        if (String.isNotBlank(prNumber)) acct.Permanent_Resident_Number__c = prNumber;
+        Date prEffective = parseDateLenient(firstNonBlank(new List<String>{
+            readString(hsCit, 'permanent_resident_date'),
+            readString(hsCit, 'date_permanent_resident_granted')
+        }));
+        if (prEffective != null) acct.Permanent_Resident_Effective_Date__c = prEffective;
 
         String gender = readString(hsPersonal, 'pers_Gender');
         if (String.isNotBlank(gender)) {
@@ -901,6 +973,12 @@ public with sharing class OAP_Cfrims2DataPullService {
         Map<String, Object> hsCitizenship = readMap(handshakeApplicantData, 'citizenship');
         Boolean citForeign = readBooleanFlag(hsCitizenship, 'citizenship_foreign');
         if (citForeign != null) form.OAP_Citizen_of_Country_other_than_Canada__c = translateBooleanToPicklist(citForeign);
+        Date citizenshipDate = parseDateLenient(readString(hsCitizenship, 'citizenship_date'));
+        if (citizenshipDate != null) form.OAP_Date_Canadian_Citizenship_Granted__c = citizenshipDate;
+        Date entryDate = parseDateLenient(readString(hsCitizenship, 'date_entry_in_Canada'));
+        if (entryDate != null) form.OAP_Date_Entry_In_Canada__c = entryDate;
+        String formPrNumber = readString(hsCitizenship, 'permanent_resident_number');
+        if (String.isNotBlank(formPrNumber)) form.OAP_Permanent_Resident_Number__c = formPrNumber;
         String prDateStr = readString(hsCitizenship, 'permanent_resident_date');
         if (String.isNotBlank(prDateStr)) {
             try {
@@ -1225,10 +1303,60 @@ public with sharing class OAP_Cfrims2DataPullService {
     @TestVisible
     private static String translateSex(String cfrimsValue) {
         if (String.isBlank(cfrimsValue)) return null;
-        String v = cfrimsValue.toUpperCase();
-        if (v == 'M') return 'Male';
-        if (v == 'F') return 'Female';
+        String v = cfrimsValue.trim().toUpperCase();
+        if (v == 'M' || v == 'MALE')     return 'Male';
+        if (v == 'F' || v == 'FEMALE')   return 'Female';
+        if (v == 'I' || v == 'INTERSEX') return 'Intersex';
         return null;
+    }
+
+    /**
+     * Maps the CFRIMS citizenship_canadian / citizenship_permanent flags to
+     * the Account.OAP_Citizenship__c picklist API name active in this org.
+     */
+    private static final List<String> CITIZEN_VALUE_CANDIDATES = new List<String>{
+        'Canadian Citizen', 'Canadian', 'Citizen', 'Yes'
+    };
+    private static final List<String> PR_VALUE_CANDIDATES = new List<String>{
+        'Permanent Resident', 'Canadian Permanent Resident', 'PR'
+    };
+
+    @TestVisible
+    private static String citizenshipApiName(Boolean isCanadian, Boolean isPermanent) {
+        Schema.DescribeFieldResult dfr = Account.OAP_Citizenship__c.getDescribe();
+        if (isPermanent == true) return resolvePicklistOrText(dfr, PR_VALUE_CANDIDATES);
+        if (isCanadian == true)  return resolvePicklistOrText(dfr, CITIZEN_VALUE_CANDIDATES);
+        return null;
+    }
+
+    /**
+     * Returns the first candidate that is an active picklist value on the
+     * field; for non-picklist (text) fields returns the first non-blank
+     * candidate unchanged.
+     */
+    private static String resolvePicklistOrText(
+            Schema.DescribeFieldResult dfr, List<String> candidates) {
+        if (dfr == null || candidates == null) return null;
+        Boolean isPicklist = dfr.getType() == Schema.DisplayType.PICKLIST
+            || dfr.getType() == Schema.DisplayType.MULTIPICKLIST;
+        for (String c : candidates) {
+            if (String.isBlank(c)) continue;
+            if (!isPicklist) return c;
+            String api = picklistApiName(dfr, c);
+            if (api != null) return api;
+        }
+        return null;
+    }
+
+    private static Date parseDateLenient(String raw) {
+        if (String.isBlank(raw)) return null;
+        try {
+            String datePart = raw.trim().length() >= 10 ? raw.trim().substring(0, 10) : raw.trim();
+            return Date.valueOf(datePart);
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN, 'Unparseable date from CFRIMS: ' + raw);
+            return null;
+        }
     }
 
     /**

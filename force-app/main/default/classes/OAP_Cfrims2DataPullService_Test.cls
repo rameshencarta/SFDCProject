@@ -645,6 +645,33 @@ private class OAP_Cfrims2DataPullService_Test {
   }
 
   @isTest
+  static void personalInfoHelpers_resolveSexCitizenshipAndHandshakeReuse() {
+    System.assertEquals('Male', OAP_Cfrims2DataPullService.translateSex('M'));
+    System.assertEquals('Female', OAP_Cfrims2DataPullService.translateSex('f'));
+    System.assertEquals('Intersex', OAP_Cfrims2DataPullService.translateSex('I'));
+    System.assertEquals(null, OAP_Cfrims2DataPullService.translateSex('Z'));
+
+    // Nothing to resolve when both flags are false / absent.
+    System.assertEquals(null, OAP_Cfrims2DataPullService.citizenshipApiName(false, false));
+    System.assertEquals(null, OAP_Cfrims2DataPullService.citizenshipApiName(null, null));
+    // Resolution against the org picklist never throws; a value is returned
+    // only when a matching active entry exists.
+    String citizen = OAP_Cfrims2DataPullService.citizenshipApiName(true, false);
+    String pr      = OAP_Cfrims2DataPullService.citizenshipApiName(true, true);
+    System.assert(citizen == null || citizen.toLowerCase().contains('c'));
+    System.assert(pr == null || pr.toLowerCase().contains('p'));
+
+    // A handshake that already carries applicant_data is returned unchanged
+    // (no re-handshake callout).
+    Map<String, String> hs = new Map<String, String>{
+      'accessToken' => 'tok',
+      'rawBody' => '{"applicant_data":{"personal_info":{"pers_Sex":"M"}}}'
+    };
+    Map<String, String> same = OAP_Cfrims2DataPullService.ensureApplicantData(SUCCESS_EMAIL, hs);
+    System.assert(same === hs, 'handshake with applicant_data must be reused as-is');
+  }
+
+  @isTest
   static void statusCodeZeroOrBinZero_forcesDraft() {
     System.assert(OAP_Cfrims2DataPullService.isDraftStatusCode('0'));
     System.assert(OAP_Cfrims2DataPullService.isDraftStatusCode(' 0 '));
