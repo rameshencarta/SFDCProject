@@ -75,6 +75,13 @@ public with sharing class OAP_Cfrims2DataPullService {
     @TestVisible private static final Set<String> SUBMITTED_STATUS_CODES =
         STATUS_CODE_STAGE_MAP.keySet();
 
+    /** CFRIMS applicant_status / bin value meaning the OAP1 application is
+     *  still a Draft (never submitted). Overrides the handshake
+     *  application_completed flag. */
+    @TestVisible private static final String STATUS_CODE_DRAFT = '0';
+    @TestVisible private static final Set<String> DRAFT_BIN_VALUES =
+        new Set<String>{ '0', 'draft' };
+
     @TestVisible
     private static final Map<String, String> PREV_SERVICE_MAP = new Map<String, String>{
         '0'     => 'No',
@@ -781,7 +788,12 @@ public with sharing class OAP_Cfrims2DataPullService {
         form.AccountId = accountId;
         if (isNewForm) form.UsageType = USAGE_TYPE_DEFAULT;
 
-        if (dashboardApps != null && !dashboardApps.isEmpty()) {
+        Boolean cfrimsSaysDraft = dashboard != null
+            && (isDraftStatusCode(dashboard.applicant_status) || isDraftBin(binName));
+
+        if (cfrimsSaysDraft) {
+            form.Stage = STAGE_DRAFT;
+        } else if (dashboardApps != null && !dashboardApps.isEmpty()) {
             DashboardPayload.Application cfrimsApp = dashboardApps[0];
             form.Stage = cfrimsApp.application_completed == 1 ? stageCompleted() : STAGE_DRAFT;
             if (String.isNotBlank(cfrimsApp.submission_date)) {
@@ -1047,6 +1059,10 @@ public with sharing class OAP_Cfrims2DataPullService {
      *  Draft forms and unknown bins are left untouched. */
     public static void applyBinTransformation(ApplicationForm form, String binName) {
         if (form == null || String.isBlank(binName)) return;
+        if (isDraftBin(binName)) {
+            setDraft(form);
+            return;
+        }
         if (form.Stage == STAGE_DRAFT) return;
 
         String statusValue = picklistApiName(
@@ -1073,6 +1089,10 @@ public with sharing class OAP_Cfrims2DataPullService {
      *  CFRIMS supplies one, is applied afterwards and takes precedence. */
     public static void applyStatusCodeTransformation(ApplicationForm form, String statusCode) {
         if (form == null || String.isBlank(statusCode)) return;
+        if (isDraftStatusCode(statusCode)) {
+            setDraft(form);
+            return;
+        }
         if (form.Stage == STAGE_DRAFT) {
             if (String.isBlank(form.ApplicationStatus)) {
                 String draftStatus = picklistApiName(
@@ -1093,6 +1113,25 @@ public with sharing class OAP_Cfrims2DataPullService {
             ApplicationForm.ApplicationStatus.getDescribe(),
             APPLICANT_STATUS_MAP.get(statusCode.trim()));
         if (statusValue != null) form.ApplicationStatus = statusValue;
+    }
+
+    /** applicant_status "0": the OAP1 application was never submitted. */
+    public static Boolean isDraftStatusCode(String statusCode) {
+        return String.isNotBlank(statusCode) && statusCode.trim() == STATUS_CODE_DRAFT;
+    }
+
+    /** Bin "0" / "Draft": the OAP1 application was never submitted. */
+    public static Boolean isDraftBin(String binName) {
+        return String.isNotBlank(binName)
+            && DRAFT_BIN_VALUES.contains(binName.trim().toLowerCase());
+    }
+
+    private static void setDraft(ApplicationForm form) {
+        form.Stage = STAGE_DRAFT;
+        form.SubmissionDate = null;
+        String draftStatus = picklistApiName(
+            ApplicationForm.ApplicationStatus.getDescribe(), STAGE_DRAFT);
+        if (draftStatus != null) form.ApplicationStatus = draftStatus;
     }
 
     /** STATUS_CODE_STAGE_MAP lookup, validated against the active Stage picklist. */

@@ -524,14 +524,18 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
             if (forms.isEmpty()) return;
             ApplicationForm form = forms[0];
             Boolean formChanged = false;
-            if (String.isBlank(form.Stage) || form.Stage == 'Draft') {
+            String binName = OAP_Cfrims2DataPullService.extractBinName(rawBody);
+            Boolean cfrimsSaysDraft =
+                OAP_Cfrims2DataPullService.isDraftStatusCode(statusCode)
+                || OAP_Cfrims2DataPullService.isDraftBin(binName);
+            if (!cfrimsSaysDraft
+                    && (String.isBlank(form.Stage) || form.Stage == 'Draft')) {
                 form.Stage = OAP_Cfrims2DataPullService.stageCompleted();
                 formChanged = true;
             }
             String prevStage  = form.Stage;
             String prevStatus = form.ApplicationStatus;
             OAP_Cfrims2DataPullService.applyStatusCodeTransformation(form, statusCode);
-            String binName = OAP_Cfrims2DataPullService.extractBinName(rawBody);
             if (String.isNotBlank(binName)) {
                 OAP_Cfrims2DataPullService.applyBinTransformation(form, binName);
             }

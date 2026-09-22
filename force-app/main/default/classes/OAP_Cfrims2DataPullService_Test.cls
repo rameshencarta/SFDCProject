@@ -645,6 +645,27 @@ private class OAP_Cfrims2DataPullService_Test {
   }
 
   @isTest
+  static void statusCodeZeroOrBinZero_forcesDraft() {
+    System.assert(OAP_Cfrims2DataPullService.isDraftStatusCode('0'));
+    System.assert(OAP_Cfrims2DataPullService.isDraftStatusCode(' 0 '));
+    System.assert(!OAP_Cfrims2DataPullService.isDraftStatusCode('10'));
+    System.assert(!OAP_Cfrims2DataPullService.isDraftStatusCode(null));
+    System.assert(OAP_Cfrims2DataPullService.isDraftBin('0'));
+    System.assert(OAP_Cfrims2DataPullService.isDraftBin('Draft'));
+    System.assert(!OAP_Cfrims2DataPullService.isDraftBin('Potential Applicants'));
+
+    ApplicationForm byCode = new ApplicationForm(
+      Stage = 'Submitted', ApplicationStatus = 'Submitted', SubmissionDate = Date.today());
+    OAP_Cfrims2DataPullService.applyStatusCodeTransformation(byCode, '0');
+    System.assertEquals('Draft', byCode.Stage, 'applicant_status 0 must reset Stage to Draft');
+    System.assertEquals(null, byCode.SubmissionDate, 'Draft carries no submission date');
+
+    ApplicationForm byBin = new ApplicationForm(Stage = 'Submitted', ApplicationStatus = 'Submitted');
+    OAP_Cfrims2DataPullService.applyBinTransformation(byBin, '0');
+    System.assertEquals('Draft', byBin.Stage, 'bin 0 must reset Stage to Draft');
+  }
+
+  @isTest
   static void applyBinTransformation_skipsDraftAndUnknownBin() {
     ApplicationForm draft = new ApplicationForm(Stage = 'Draft', ApplicationStatus = 'Draft');
     OAP_Cfrims2DataPullService.applyBinTransformation(draft, 'Initial Processing');
