@@ -829,7 +829,7 @@ public with sharing class OAP_Cfrims2DataPullService {
             String binName) {
 
         List<ApplicationForm> existing = [
-            SELECT Id, AccountId, Stage, SubmissionDate, UsageType,
+            SELECT Id, AccountId, Stage, ApplicationStatus, SubmissionDate, UsageType,
                    Application_Signature__c, CFRIMS_Synced__c, CFRIMS_Correlation_Id__c,
                    CFRIMS_Last_Sync_Error__c, OAP_Highest_Level_of_Education__c,
                    OAP_Preferred_Language_Correspondence__c,
