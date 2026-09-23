@@ -24,6 +24,18 @@ public with sharing class OAP_Cfrims2ChallengeService {
         if (optionCode == '1') {
             return validateSmsCodeLocally(answer);
         }
+        if (optionCode == '3' || optionCode == '4') {
+            CasePayload cached = OAP_Cfrims2SessionCache.getCasePayload(UserInfo.getUserId());
+            Boolean hasReference = optionCode == '3'
+                ? cached != null && String.isNotBlank(cached.service_nb) && String.isNotBlank(cached.dob)
+                : cached != null && String.isNotBlank(cached.last_name)
+                    && String.isNotBlank(cached.dob) && String.isNotBlank(cached.city_birth);
+            if (hasReference) {
+                return optionCode == '3'
+                    ? validateServiceNumberLocally(email, answer, cached)
+                    : validateBirthDetailsLocally(email, answer, cached);
+            }
+        }
         Integer optionNumber = Integer.valueOf(optionCode);
         Map<String, Object> payload = buildPayload(optionCode, answer);
 
@@ -154,6 +166,105 @@ public with sharing class OAP_Cfrims2ChallengeService {
         Boolean match = computedHash != null && computedHash.equalsIgnoreCase(storedHash);
         logAttempt(email, questionText, match, match ? 'Hash match' : 'Hash mismatch');
         return match;
+    }
+
+    @TestVisible
+    private static Boolean validateServiceNumberLocally(
+            String email, Map<String, Object> answer, CasePayload payload) {
+        String svc = normaliseServiceNumber(answerString(answer, 'serviceNumber'));
+        String dob = normaliseDate(answerString(answer, 'dob'));
+        Boolean match = String.isNotBlank(svc) && String.isNotBlank(dob)
+            && svc == normaliseServiceNumber(payload.service_nb)
+            && dob == normaliseDate(payload.dob);
+        System.debug(LoggingLevel.INFO, '[Challenge option 3 attempt] email=' + email
+            + ' success=' + match);
+        return match;
+    }
+
+    @TestVisible
+    private static Boolean validateBirthDetailsLocally(
+            String email, Map<String, Object> answer, CasePayload payload) {
+        String last = normaliseText(answerString(answer, 'lastName'));
+        String dob  = normaliseDate(answerString(answer, 'dob'));
+        String city = normaliseText(answerString(answer, 'cityOfBirth'));
+        Boolean match = String.isNotBlank(last) && String.isNotBlank(dob) && String.isNotBlank(city)
+            && last == normaliseText(payload.last_name)
+            && dob  == normaliseDate(payload.dob)
+            && city == normaliseText(payload.city_birth);
+        System.debug(LoggingLevel.INFO, '[Challenge option 4 attempt] email=' + email
+            + ' success=' + match);
+        return match;
+    }
+
+    private static String answerString(Map<String, Object> answer, String key) {
+        return answer == null || answer.get(key) == null ? null : String.valueOf(answer.get(key));
+    }
+
+    @TestVisible
+    private static String normaliseServiceNumber(String raw) {
+        return raw == null ? null : raw.replaceAll('[^A-Za-z0-9]', '').toUpperCase();
+    }
+
+    // Case-, whitespace- and accent-insensitive comparison key.
+    @TestVisible
+    private static String normaliseText(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim().toLowerCase().replaceAll('\\s+', ' ');
+        String accented = 'àáâãäåçèéêëìíîïñòóôõöùúûüýÿœæ';
+        String to   = 'aaaaaaceeeeiiiinooooouuuuyyoa';
+        for (Integer i = 0; i < accented.length(); i++) {
+            s = s.replace(accented.substring(i, i + 1), to.substring(i, i + 1));
+        }
+        return s;
+    }
+
+    // Accepts yyyy-MM-dd, dd-MMM-yyyy (CFRIMS), dd/MM/yyyy, yyyy/MM/dd, yyyyMMdd; returns yyyy-MM-dd.
+    @TestVisible
+    private static String normaliseDate(String raw) {
+        if (String.isBlank(raw)) return null;
+        String s = raw.trim();
+        if (Pattern.matches('^\\d{4}-\\d{2}-\\d{2}.*', s)) {
+            return s.substring(0, 10);
+        }
+        Matcher m = Pattern.compile('^(\\d{1,2})[-/ ]([A-Za-z]{3,})[-/ ,]+(\\d{4})$').matcher(s);
+        if (m.matches()) {
+            Integer month = monthFromName(m.group(2));
+            if (month == null) return s;
+            return pad(Integer.valueOf(m.group(3)), 4) + '-' + pad(month, 2) + '-' + pad(Integer.valueOf(m.group(1)), 2);
+        }
+        m = Pattern.compile('^([A-Za-z]{3,})\\.? (\\d{1,2}),? (\\d{4})$').matcher(s);
+        if (m.matches()) {
+            Integer month = monthFromName(m.group(1));
+            if (month == null) return s;
+            return pad(Integer.valueOf(m.group(3)), 4) + '-' + pad(month, 2) + '-' + pad(Integer.valueOf(m.group(2)), 2);
+        }
+        m = Pattern.compile('^(\\d{4})[/.](\\d{1,2})[/.](\\d{1,2})$').matcher(s);
+        if (m.matches()) {
+            return pad(Integer.valueOf(m.group(1)), 4) + '-' + pad(Integer.valueOf(m.group(2)), 2) + '-' + pad(Integer.valueOf(m.group(3)), 2);
+        }
+        m = Pattern.compile('^(\\d{1,2})[-/.](\\d{1,2})[-/.](\\d{4})$').matcher(s);
+        if (m.matches()) {
+            return pad(Integer.valueOf(m.group(3)), 4) + '-' + pad(Integer.valueOf(m.group(2)), 2) + '-' + pad(Integer.valueOf(m.group(1)), 2);
+        }
+        if (Pattern.matches('^\\d{8}$', s)) {
+            return s.substring(0, 4) + '-' + s.substring(4, 6) + '-' + s.substring(6, 8);
+        }
+        return s;
+    }
+
+    private static Integer monthFromName(String name) {
+        Map<String, Integer> months = new Map<String, Integer>{
+            'jan' => 1, 'feb' => 2, 'mar' => 3, 'apr' => 4, 'may' => 5, 'jun' => 6,
+            'jul' => 7, 'aug' => 8, 'sep' => 9, 'oct' => 10, 'nov' => 11, 'dec' => 12,
+            'fev' => 2, 'avr' => 4, 'mai' => 5, 'jui' => 6, 'aou' => 8
+        };
+        return months.get(normaliseText(name).left(3));
+    }
+
+    private static String pad(Integer n, Integer width) {
+        String s = String.valueOf(n);
+        while (s.length() < width) s = '0' + s;
+        return s;
     }
 
     @TestVisible
