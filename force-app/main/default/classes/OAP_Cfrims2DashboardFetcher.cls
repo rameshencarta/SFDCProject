@@ -38,6 +38,24 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
     
     @future(callout=true)
     public static void fetchAsync(Id accountId, Id applicationFormId, String email) {
+        runFetch(accountId, applicationFormId, email, null);
+    }
+
+    /**
+     * @param handshakeRawBody decrypted handshake body from the caller's own
+     *        handshake (null when the caller reused a stored token). The
+     *        handshake is the only CFRIMS payload carrying the applicant's
+     *        given name / surname, so when none is supplied one is performed
+     *        here to keep Account names in sync with CFRIMS.
+     */
+    @future(callout=true)
+    public static void fetchAsync(Id accountId, Id applicationFormId, String email,
+                                  String handshakeRawBody) {
+        runFetch(accountId, applicationFormId, email, handshakeRawBody);
+    }
+
+    private static void runFetch(Id accountId, Id applicationFormId, String email,
+                                 String handshakeRawBody) {
         try {
             Account a = [
                 SELECT Id, CFRIMS_User_Identifier__pc, CFRIMS_Client_Session_Id__pc,
@@ -48,6 +66,12 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
            
             Map<String, String> session = buildStoredSession(a);
             Boolean didHandshake = false;
+
+            if (session != null && String.isNotBlank(handshakeRawBody)) {
+                session.put('rawBody', handshakeRawBody);
+            } else if (session != null) {
+                session = null; // no name source available: handshake below
+            }
 
             if (session == null) {
                
@@ -101,7 +125,7 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
             Map<String, Object> dash =
                 (Map<String, Object>) JSON.deserializeUntyped(dashres.decryptedBody);
 
-            if (didHandshake) applyHandshakeNames(accountId, session);
+            applyHandshakeNames(accountId, session);
             new OAP_Cfrims2DashboardFetcher(accountId, applicationFormId, email)
                 .applyDashboardToSalesforce(dash, dashres.decryptedBody);
 

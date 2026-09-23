@@ -217,11 +217,14 @@ public with sharing class OAP_Cfrims2ChallengeController {
                         if (closedFormId != null) {
                             // keep the closed file's tasks/status current, on the old form only
                             OAP_Cfrims2DashboardFetcher.fetchAsync(
-                                acctToSave.Id, closedFormId, userEmail);
+                                acctToSave.Id, closedFormId, userEmail,
+                                didHandshake ? handshake.get('rawBody') : null);
                         }
                     } else if (verdict == 'COMPLETE_MERGE_AUTO' || verdict == 'ROUTE_BY_STATUS') {
                         Id formId = OAP_Cfrims2DataPullService.cfrimsSyncedFormId(acctToSave.Id);
-                        OAP_Cfrims2DashboardFetcher.fetchAsync(acctToSave.Id, formId, userEmail);
+                        OAP_Cfrims2DashboardFetcher.fetchAsync(
+                            acctToSave.Id, formId, userEmail,
+                            didHandshake ? handshake.get('rawBody') : null);
                     }
                 }
             } catch (Exception saveEx) {
