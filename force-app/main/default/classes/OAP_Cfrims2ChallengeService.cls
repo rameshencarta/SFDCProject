@@ -226,13 +226,13 @@ public with sharing class OAP_Cfrims2ChallengeService {
         if (Pattern.matches('^\\d{4}-\\d{2}-\\d{2}.*', s)) {
             return s.substring(0, 10);
         }
-        Matcher m = Pattern.compile('^(\\d{1,2})[-/ ]([A-Za-z]{3,})[-/ ,]+(\\d{4})$').matcher(s);
+        Matcher m = Pattern.compile('^(\\d{1,2})[-/ ]([\\p{L}]{3,})[-/ ,]+(\\d{4})$').matcher(s);
         if (m.matches()) {
             Integer month = monthFromName(m.group(2));
             if (month == null) return s;
             return pad(Integer.valueOf(m.group(3)), 4) + '-' + pad(month, 2) + '-' + pad(Integer.valueOf(m.group(1)), 2);
         }
-        m = Pattern.compile('^([A-Za-z]{3,})\\.? (\\d{1,2}),? (\\d{4})$').matcher(s);
+        m = Pattern.compile('^([\\p{L}]{3,})\\.? (\\d{1,2}),? (\\d{4})$').matcher(s);
         if (m.matches()) {
             Integer month = monthFromName(m.group(1));
             if (month == null) return s;
