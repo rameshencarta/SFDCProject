@@ -475,12 +475,24 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
 
         if (changed) {
             try {
-                update acct;
+                Database.update(acct, AccessLevel.SYSTEM_MODE);
             } catch (Exception updateEx) {
                 System.debug(LoggingLevel.WARN,
                     'OAP_Cfrims2DashboardFetcher.applyDashboardToSalesforce: '
                     + updateEx.getMessage());
+                try {
+                    CFRIMS_Logger.CFRIMSlogAPI(
+                        'applyDashboardToSalesforce', '', 'ACCOUNT_SYNC', '',
+                        JSON.serialize(acct), null, false,
+                        'Account update failed: ' + updateEx.getMessage(),
+                        String.valueOf(accountId), String.valueOf(applicationFormId));
+                    CFRIMS_Logger.flush();
+                } catch (Exception logEx) {}
             }
+        } else {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DashboardFetcher.applyDashboardToSalesforce: dashboard '
+                + 'carried no personal_info/applicant_status — Account not updated.');
         }
        
         if (dash.containsKey('applicant_appointments')) {
