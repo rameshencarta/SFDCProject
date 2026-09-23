@@ -37,45 +37,12 @@ public with sharing class OAP_Cfrims2ChallengeController {
                     && String.isNotBlank(accts[0].CFRIMS_Client_Session_Id__pc))
                 ? accts[0].CFRIMS_Client_Session_Id__pc
                 : OAP_Utils.generateSessGuid();            
-            String storedToken   = !accts.isEmpty() ? accts[0].CFRIMS_Access_Token__pc   : null;
-            String storedUserKey = !accts.isEmpty() ? accts[0].user_key__pc              : null;
-            Map<String, String> handshake = null;
-                        
-            Boolean didHandshake = false;
-
-            if (String.isNotBlank(storedToken) && !isTokenExpired(storedToken)) {
-                Map<String, Object> claims = decodeJwtClaims(storedToken);
-                String claimSessionKey = (claims != null && claims.get('session_key') != null)
-                    ? String.valueOf(claims.get('session_key')) : null;
-                String claimUserKey = (claims != null && claims.get('nameid') != null)
-                    ? String.valueOf(claims.get('nameid'))      // nameid claim IS the user_key
-                    : storedUserKey;
-
-                if (String.isNotBlank(claimSessionKey) && String.isNotBlank(claimUserKey)) {
-                    System.debug('[startSession] Reusing stored accessToken — skipping handshake '
-                        + '(session keys decoded from JWT claims)');
-                    handshake = new Map<String, String>{
-                        'accessToken'     => storedToken,
-                        'user_key'        => claimUserKey,
-                        'session_key'     => claimSessionKey,
-                        'userIdentifier'  => (claims.get('UserIdentifier') != null)
-                                                ? String.valueOf(claims.get('UserIdentifier'))
-                                                : userIdentifier,
-                        'clientSessionId' => (claims.get('ClientSessionID') != null)
-                                                ? String.valueOf(claims.get('ClientSessionID'))
-                                                : clientSessionId,
-                        'rawBody'         => null
-                    };
-                }
-                
-            }
-
-            if (handshake == null) {
-                System.debug('[startSession] No valid stored token — calling performHandshake');
-                handshake = OAP_CFRIMS_ApiClient.performHandshake(
-                    userEmail, userIdentifier, clientSessionId);
-                didHandshake = true;
-            }
+            // Every login/refresh handshakes: the handshake body is the only
+            // CFRIMS payload carrying the merge flags and the applicant's
+            // current names, so a stored token cannot replace it.
+            Map<String, String> handshake = OAP_CFRIMS_ApiClient.performHandshake(
+                userEmail, userIdentifier, clientSessionId);
+            Boolean didHandshake = true;
 
             
             if (String.isNotBlank(handshake.get('userIdentifier'))) {

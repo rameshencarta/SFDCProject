@@ -925,7 +925,7 @@ private class OAP_Cfrims2ChallengeControllerTest {
     }
 
     @IsTest
-    static void startSession_storedValidToken_skipsHandshakeEntirely() {
+    static void startSession_storedValidToken_stillHandshakes() {
         Account a = createPersonAccount(TEST_EMAIL);
         Long future = DateTime.now().addHours(2).getTime() / 1000;
         String jwt = 'header.' + EncodingUtil.base64Encode(Blob.valueOf(JSON.serialize(
@@ -940,8 +940,6 @@ private class OAP_Cfrims2ChallengeControllerTest {
         a.user_key__pc            = 'UK-STORED';
         update a;
 
-        // Any handshake call would hit the catch-all below and change the body,
-        // so reaching a verdict at all proves the stored session was reused.
         Test.setMock(HttpCalloutMock.class,
             new MergePathMock(new Map<String, Object>{ 'require_merge' => 0 }));
 
@@ -950,9 +948,10 @@ private class OAP_Cfrims2ChallengeControllerTest {
             OAP_Cfrims2ChallengeController.startSession(TEST_EMAIL);
         Test.stopTest();
 
-        Assert.isNotNull(ctx, 'A stored unexpired token must yield a context');
-        Assert.areEqual(jwt, ctx.accessToken,
-            'The stored token must be reused rather than replaced by a fresh handshake');
+        Assert.isNotNull(ctx, 'A stored unexpired token must still yield a context');
+        Assert.areEqual('tok.abc.def', ctx.accessToken,
+            'Every login must handshake (merge flags and names only come from the '
+            + 'handshake body), so the stored token is replaced');
     }
 
     @IsTest
