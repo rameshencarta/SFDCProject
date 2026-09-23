@@ -484,12 +484,15 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
         if (resolvedFormId != null) {
             Object occMos       = dash.get('occ_display_mos');
             Object occComponent = dash.get('occ_display_component');
-            if (occMos != null || occComponent != null) {
+            // occ_display_mos present but null = CFRIMS inactivated every
+            // occupation; the stale display must be cleared, not kept.
+            if (dash.containsKey('occ_display_mos') || occComponent != null) {
                 try {
                     ApplicationForm formUpdate = new ApplicationForm(Id = resolvedFormId);
                     Boolean formChanged = false;
-                    if (occMos != null) {
-                        formUpdate.OAP_Occupation_Display__c = String.valueOf(occMos);
+                    if (dash.containsKey('occ_display_mos')) {
+                        formUpdate.OAP_Occupation_Display__c =
+                            occMos == null ? null : String.valueOf(occMos);
                         formChanged = true;
                     }
                     if (occComponent != null) {
