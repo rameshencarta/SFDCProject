@@ -132,7 +132,8 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
             
             List<Object> tasks  = (List<Object>) dash.get('applicant_tasks');
             Object       occMos = dash.get('occ_display_mos');
-            if (tasks != null && tasks.isEmpty() && occMos == null
+            if ((tasks == null || tasks.isEmpty()) && occMos == null
+                    && dash.get('applicant_status') == null
                     && !Test.isRunningTest()) {
                 System.debug(LoggingLevel.WARN,
                     'OAP_Cfrims2DashboardFetcher.fetchAsync: dashboard looks '
@@ -205,6 +206,10 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
         } catch (Exception e) {
             Cfrims2HandshakeIdStore.flushPersist();
             CFRIMS_Logger.flush();
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DashboardFetcher.execute: callout failed on attempt '
+                + attempt + ' — ' + e.getMessage());
+            requeueIfBudgetLeft();
             return;
         }
 
@@ -220,20 +225,19 @@ public class OAP_Cfrims2DashboardFetcher implements Queueable, Database.AllowsCa
             return;
         }
 
-        Boolean hasData = dash.get('personal_info') != null
-                       || dash.get('applicant_tasks') != null;
-        if (!hasData) {
-            return;
-        }
-        
-        if (didHandshake) applyHandshakeNames(accountId, session);
-        applyDashboardToSalesforce(dash, dashres.decryptedBody);
-
-       
         List<Object> tasks  = (List<Object>) dash.get('applicant_tasks');
         Object       occMos = dash.get('occ_display_mos');
-        Boolean looksUnprovisioned =
-            tasks != null && tasks.isEmpty() && occMos == null;
+        Boolean hasData = dash.get('personal_info') != null || tasks != null;
+        // A file CFRIMS has not provisioned yet comes back with null/empty
+        // tasks, no MOS and no status: keep polling rather than accept it.
+        Boolean looksUnprovisioned = !hasData
+            || ((tasks == null || tasks.isEmpty()) && occMos == null
+                && dash.get('applicant_status') == null);
+
+        if (hasData) {
+            if (didHandshake) applyHandshakeNames(accountId, session);
+            applyDashboardToSalesforce(dash, dashres.decryptedBody);
+        }
 
         try {
             CFRIMS_Logger.CFRIMSlogAPI(
