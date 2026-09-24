@@ -1,8 +1,8 @@
 <template>
     <div class="slds-box slds-p-around_medium">
-        <h2 class="slds-text-heading_medium slds-m-bottom_x-small">Enter your code</h2>
+        <h2 class="slds-text-heading_medium slds-m-bottom_x-small">{labels.title}</h2>
         <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_medium">
-            A 6-digit code was sent to <strong>{maskedPhone}</strong>. It expires in 5 minutes.
+            {introBefore}<strong>{maskedPhone}</strong>{introAfter}
         </p>
 
         <template if:true={dispatchError}>
@@ -13,23 +13,23 @@
         </template>
 
         <template if:true={sending}>
-            <lightning-spinner alternative-text="Sending code" size="small"></lightning-spinner>
+            <lightning-spinner alternative-text={labels.sending} size="small"></lightning-spinner>
         </template>
 
         <lightning-input
             type="text"
-            label="Verification code"
+            label={labels.codeLabel}
             value={code}
             onchange={handleCodeChange}
             max-length="6"
             pattern="[0-9]{6}"
-            message-when-pattern-mismatch="Enter the 6-digit code"
+            message-when-pattern-mismatch={labels.codePattern}
             class="slds-m-bottom_medium">
         </lightning-input>
 
         <lightning-button
             variant="brand"
-            label="Verify code"
+            label={labels.verifyCode}
             onclick={handleVerify}
             disabled={verifyDisabled}
             stretch
@@ -37,8 +37,8 @@
         </lightning-button>
 
         <div class="slds-grid slds-grid_align-spread slds-m-top_small">
-            <lightning-button variant="base" label="Resend code" onclick={handleResend} disabled={sending}></lightning-button>
-            <lightning-button variant="base" label="Use a different option" onclick={handleSwitch}></lightning-button>
+            <lightning-button variant="base" label={labels.resend} onclick={handleResend} disabled={sending}></lightning-button>
+            <lightning-button variant="base" label={labels.chooseAnotherMethod} onclick={handleSwitch}></lightning-button>
         </div>
     </div>
 </template>

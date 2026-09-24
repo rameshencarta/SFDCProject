@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Translations xmlns="http://soap.sforce.com/2006/04/metadata">
+    <customLabels>
+        <label>Vérification de votre identité</label>
+        <name>OAP_Challenge_VerifyIdentity_Title</name>
+    </customLabels>
+    <customLabels>
+        <label>Sélectionnez une méthode de vérification de l’identité pour continuer.</label>
+        <name>OAP_Challenge_SelectMethod</name>
+    </customLabels>
+    <customLabels>
+        <label>Recommandé</label>
+        <name>OAP_Challenge_Recommended</name>
+    </customLabels>
+    <customLabels>
+        <label>Continuer</label>
+        <name>OAP_Challenge_Continue</name>
+    </customLabels>
+    <customLabels>
+        <label>Autres options de vérification</label>
+        <name>OAP_Challenge_OtherOptions</name>
+    </customLabels>
+    <customLabels>
+        <label>Masquer les autres options de vérification</label>
+        <name>OAP_Challenge_HideOtherOptions</name>
+    </customLabels>
+    <customLabels>
+        <label>Envoyer un code de vérification au numéro de téléphone au dossier</label>
+        <name>OAP_Challenge_Opt1_SendCode</name>
+    </customLabels>
+    <customLabels>
+        <label>Vérification par question de sécurité</label>
+        <name>OAP_Challenge_Opt2_SecurityQuestion</name>
+    </customLabels>
+    <customLabels>
+        <label>Vérification par numéro de matricule et date de naissance</label>
+        <name>OAP_Challenge_Opt3_ServiceNumber</name>
+    </customLabels>
+    <customLabels>
+        <label>Vérification par renseignements de naissance (nom de famille, date de naissance et ville de naissance)</label>
+        <name>OAP_Challenge_Opt4_BirthDetails</name>
+    </customLabels>
+    <customLabels>
+        <label>Communiquer avec le GRFC</label>
+        <name>OAP_Challenge_Opt5_GetHelp</name>
+    </customLabels>
+    <customLabels>
+        <label>Vérifier</label>
+        <name>OAP_Challenge_Verify</name>
+    </customLabels>
+    <customLabels>
+        <label>Choisir une autre méthode de vérification</label>
+        <name>OAP_Challenge_ChooseAnotherMethod</name>
+    </customLabels>
+    <customLabels>
+        <label>Date de naissance</label>
+        <name>OAP_Challenge_DateOfBirth</name>
+    </customLabels>
+    <customLabels>
+        <label>La date de naissance est obligatoire</label>
+        <name>OAP_Challenge_DateOfBirth_Required</name>
+    </customLabels>
+    <customLabels>
+        <label>Vérification par question de sécurité</label>
+        <name>OAP_Challenge_SecurityQuestions_Title</name>
+    </customLabels>
+    <customLabels>
+        <label>Questions de sécurité</label>
+        <name>OAP_Challenge_SecurityQuestions</name>
+    </customLabels>
+    <customLabels>
+        <label>Réponse</label>
+        <name>OAP_Challenge_Answer</name>
+    </customLabels>
+    <customLabels>
+        <label>Utiliser une autre question de sécurité</label>
+        <name>OAP_Challenge_UseDifferentQuestion</name>
+    </customLabels>
+    <customLabels>
+        <label>Numéro de matricule</label>
+        <name>OAP_Challenge_ServiceNumber</name>
+    </customLabels>
+    <customLabels>
+        <label>Le numéro de matricule est obligatoire</label>
+        <name>OAP_Challenge_ServiceNumber_Required</name>
+    </customLabels>
+    <customLabels>
+        <label>Vérification par renseignements de naissance</label>
+        <name>OAP_Challenge_BirthDetails_Title</name>
+    </customLabels>
+    <customLabels>
+        <label>Nom de famille sur le certificat de naissance</label>
+        <name>OAP_Challenge_LastNameBirthCert</name>
+    </customLabels>
+    <customLabels>
+        <label>Le nom de famille est obligatoire</label>
+        <name>OAP_Challenge_LastName_Required</name>
+    </customLabels>
+    <customLabels>
+        <label>Ville de naissance</label>
+        <name>OAP_Challenge_CityOfBirth</name>
+    </customLabels>
+    <customLabels>
+        <label>La ville de naissance est obligatoire</label>
+        <name>OAP_Challenge_CityOfBirth_Required</name>
+    </customLabels>
+    <customLabels>
+        <label>L’équipe de recrutement vous aidera à terminer la vérification de votre identité manuellement.</label>
+        <name>OAP_Challenge_GetHelp_Intro</name>
+    </customLabels>
+    <customLabels>
+        <label>D’après votre dossier, nous devons vérifier votre identité manuellement. L’équipe de recrutement vous aidera à terminer la fusion.</label>
+        <name>OAP_Challenge_GetHelp_SystemRedirect</name>
+    </customLabels>
+    <customLabels>
+        <label>Votre dossier est en cours d’examen par le GRFC. Veuillez communiquer avec l’équipe de recrutement pour connaître l’état de votre demande.</label>
+        <name>OAP_Challenge_GetHelp_PendingReview</name>
+    </customLabels>
+    <customLabels>
+        <label>Nous n’avons pas pu vérifier votre identité automatiquement. L’équipe de recrutement vous aidera à terminer la fusion.</label>
+        <name>OAP_Challenge_GetHelp_AttemptsExhausted</name>
+    </customLabels>
+    <customLabels>
+        <label>Numéro de téléphone</label>
+        <name>OAP_Challenge_PhoneNumber</name>
+    </customLabels>
+    <customLabels>
+        <label>Heures d’ouverture</label>
+        <name>OAP_Challenge_HoursOfOperation</name>
+    </customLabels>
+    <customLabels>
+        <label>Référence</label>
+        <name>OAP_Challenge_Reference</name>
+    </customLabels>
+    <customLabels>
+        <label>Ayez votre numéro de référence à portée de main afin que l’on puisse trouver votre dossier rapidement.</label>
+        <name>OAP_Challenge_GetHelp_ReferenceHint</name>
+    </customLabels>
+    <customLabels>
+        <label>Trouver un recruteur</label>
+        <name>OAP_Challenge_FindRecruiter</name>
+    </customLabels>
+    <customLabels>
+        <label>Entrez votre code</label>
+        <name>OAP_Challenge_Sms_Title</name>
+    </customLabels>
+    <customLabels>
+        <label>Un code à 6 chiffres a été envoyé au {0}. Il expire dans 5 minutes.</label>
+        <name>OAP_Challenge_Sms_Intro</name>
+    </customLabels>
+    <customLabels>
+        <label>Code de vérification</label>
+        <name>OAP_Challenge_Sms_CodeLabel</name>
+    </customLabels>
+    <customLabels>
+        <label>Entrez le code à 6 chiffres</label>
+        <name>OAP_Challenge_Sms_CodePattern</name>
+    </customLabels>
+    <customLabels>
+        <label>Vérifier le code</label>
+        <name>OAP_Challenge_Sms_VerifyCode</name>
+    </customLabels>
+    <customLabels>
+        <label>Renvoyer le code</label>
+        <name>OAP_Challenge_Sms_Resend</name>
+    </customLabels>
+    <customLabels>
+        <label>Envoi du code</label>
+        <name>OAP_Challenge_Sms_Sending</name>
+    </customLabels>
+    <customLabels>
+        <label>Lun.–ven. 8 h à 18 h</label>
+        <name>OAP_Challenge_HoursOfOperation_Value</name>
+    </customLabels>
+    <customLabels>
+        <label>Nous n’avons pas pu envoyer le code. Veuillez réessayer ou choisir une autre option.</label>
+        <name>OAP_Challenge_Sms_SendFailed</name>
+    </customLabels>
+</Translations>

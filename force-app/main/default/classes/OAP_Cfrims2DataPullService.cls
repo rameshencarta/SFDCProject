@@ -1,0 +1,1459 @@
+public with sharing class OAP_Cfrims2DataPullService {
+
+    /** Preferred Stage when CFRIMS reports application_completed = 1;
+     *  falls back through STAGE_COMPLETED_FALLBACKS to whatever the org's
+     *  restricted Stage picklist actually contains. */
+    @TestVisible private static final String STAGE_COMPLETED = 'Submitted';
+    @TestVisible private static final List<String> STAGE_COMPLETED_FALLBACKS =
+        new List<String>{ STAGE_COMPLETED, 'Application Submitted', 'File Submitted (Pending Review)' };
+
+    /** CFRIMS bin (lower-cased) → ApplicationForm.Stage picklist API name.
+     *  Labels (Application Submitted, Testing & Screening, ...) and French
+     *  come from the Stage picklist translation, not from this map. */
+    @TestVisible
+    private static final Map<String, String> BIN_STAGE_MAP = new Map<String, String>{
+        'potential applicants'  => 'Submitted',
+        'applicant qc'          => 'Submitted',
+        'initial processing'    => 'Screening',
+        'intake management'     => 'Screening',
+        'ready for medical / interview' => 'Medical',
+        'ready for medical/interview'   => 'Medical',
+        'rfmi'                  => 'Medical',
+        'awaiting rmo decision' => 'Medical',
+        'final processing'      => 'Background Checks',
+        'ready for competition list' => 'Selection',
+        'ready for competion list'   => 'Selection',
+        'competition list'      => 'Selection',
+        'rfcl'                  => 'Selection',
+        'cl'                    => 'Selection',
+        'selected'              => 'Offer',
+        'offer tendered'        => 'Offer',
+        'offer accepted'        => 'Offer Accepted',
+        'ready for enrolment'   => 'Offer Accepted',
+        'ready for enrollment'  => 'Offer Accepted',
+        'enrolled'              => 'Enrolled'
+    };
+
+    /** CFRIMS reference table: applicant_file_status code → bin name.
+     *  Populated from the CFRIMS reference table; codes not listed here
+     *  leave Stage untouched. */
+    @TestVisible
+    private static final Map<String, String> FILE_STATUS_BIN_MAP = new Map<String, String>();
+
+    /** Keys under which the Dashboard payload may carry the bin name
+     *  (root level or applications[0]). */
+    @TestVisible
+    private static final List<String> BIN_KEYS = new List<String>{
+        'bin', 'bin_name', 'applicant_bin', 'current_bin', 'bin_desc',
+        'applicant_file_status_desc', 'file_status_desc', 'file_status_name'
+    };
+
+    /** Stage to set when CFRIMS reports application_completed = 0 */
+    @TestVisible private static final String STAGE_DRAFT = 'Draft';
+
+    @TestVisible private static final String USAGE_TYPE_DEFAULT = 'EmployeeRecruitment';
+
+    
+    /** CFRIMS OAP Status Code (applicant_status) → ApplicationForm.Stage API
+     *  name. One code covers one or more bins:
+     *  10 Potential Applicants / Applicant QC, 20 Initial Processing / Intake
+     *  management, 30 RFMI / Awaiting RMO Decision, 40 Final Processing,
+     *  50 RFCL / CL, 60 Selected / Offer tendered, 70 Offer Accepted / Ready
+     *  For Enrollment, 80 Enrolled. */
+    @TestVisible
+    private static final Map<String, String> STATUS_CODE_STAGE_MAP = new Map<String, String>{
+        '10' => 'Submitted',
+        '20' => 'Screening',
+        '30' => 'Medical',
+        '40' => 'Background Checks',
+        '50' => 'Selection',
+        '60' => 'Offer',
+        '70' => 'Offer Accepted',
+        '80' => 'Enrolled'
+    };
+
+    @TestVisible private static final Set<String> SUBMITTED_STATUS_CODES =
+        STATUS_CODE_STAGE_MAP.keySet();
+
+    /** CFRIMS applicant_status / bin value meaning the OAP1 application is
+     *  still a Draft (never submitted). Overrides the handshake
+     *  application_completed flag. */
+    @TestVisible private static final String STATUS_CODE_DRAFT = '0';
+    @TestVisible private static final Set<String> DRAFT_BIN_VALUES =
+        new Set<String>{ '0', 'draft' };
+
+    @TestVisible
+    private static final Map<String, String> PREV_SERVICE_MAP = new Map<String, String>{
+        '0'     => 'No',
+        '1'     => 'Yes',
+        'true'  => 'Yes',
+        'false' => 'No',
+        'yes'   => 'Yes',
+        'no'    => 'No'
+    };
+
+    @TestVisible
+    private static final Map<String, String> PREV_TRADE_MAP = new Map<String, String>{
+        '0'     => 'No',
+        '1'     => 'Yes',
+        'true'  => 'Yes',
+        'false' => 'No',
+        'yes'   => 'Yes',
+        'no'    => 'No'
+    };
+   
+    @TestVisible
+    private static final Map<String, String> EDUCATION_ALIAS_MAP = new Map<String, String>{
+        'ged'         => 'Equivalency',
+        'cegep 1'     => 'Trade Certificate',
+        'cegep 2'     => 'College Diploma',
+        'cegep 3'     => 'College Diploma'
+    };
+
+    @TestVisible
+    private static final Map<String, String> APPLICANT_STATUS_MAP = new Map<String, String>{
+            '0'   => 'Draft',
+            '10'  => 'Submitted',
+            '20'  => 'Screening',
+            '30'  => 'Medical',
+            '40'  => 'Background Checks',
+            '50'  => 'Selection',
+            '60'  => 'Offer',
+            '70'  => 'Offer Accepted',
+            '80'  => 'Enrolled'
+        };
+
+    private static Boolean cachedIsSandbox;
+
+    /**
+     * Endpoint string used purely for CFRIMS_API_Log_History__c rows,
+     * matching the config-based base URL used by OAP_CFRIMS_ApiClient and
+     * OAP_ApplicationFormHandler. The actual callout endpoint is set by the ApiClient.
+     */
+    @TestVisible
+    private static String dashboardEndpointForLog() {
+        if (cachedIsSandbox == null) {
+            List<Organization> orgs = Database.query(
+                'SELECT IsSandbox FROM Organization LIMIT 1',
+                AccessLevel.SYSTEM_MODE
+            );
+            cachedIsSandbox = orgs.isEmpty() ? false : orgs[0].IsSandbox;
+        }
+        CFRIMS_Config__mdt cfg = CFRIMS_Config__mdt.getInstance(
+            cachedIsSandbox ? 'CFRIMS_Integration_Sandbox' : 'CFRIMS_Integration_Prod'
+        );
+        String base = cfg != null ? cfg.API_Base_URL__c : '';
+        return (base == null ? '' : base) + '/Applicants/dashboard';
+    }
+
+    /** Durable failure log so async/data-pull errors are visible in CFRIMS_API_Log_History__c. */
+    private static void logPullFailure(String serviceType, String errorMessage,
+            String accountId, String formId) {
+        try {
+            CFRIMS_Logger.CFRIMSlogAPI(
+                serviceType,
+                dashboardEndpointForLog(),
+                'GET', '', '',
+                0,
+                false,
+                errorMessage == null ? null : errorMessage.abbreviate(255),
+                accountId, formId
+            );
+            CFRIMS_Logger.flush();
+        } catch (Exception logEx) {
+            System.debug(LoggingLevel.WARN,
+                'logPullFailure: could not write log (non-fatal): ' + logEx.getMessage());
+        }
+    }
+
+    @future(callout=true)
+    public static void pullAsync(String email, String handshakeJson) {
+        if (String.isBlank(email) || String.isBlank(handshakeJson)) {
+            System.debug(LoggingLevel.WARN, 'pullAsync: missing email or handshake, skipping');
+            return;
+        }
+        Map<String, String> handshake;
+        try {
+            handshake = (Map<String, String>) JSON.deserialize(handshakeJson, Map<String, String>.class);
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR, 'pullAsync: bad handshake JSON: ' + e.getMessage());
+            logPullFailure('dataPullAsync',
+                'Bad handshake JSON: ' + e.getMessage(), null, null);
+            return;
+        }
+        try {
+            pullWithHandshake(email, handshake);
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR, 'pullAsync failed: ' + e.getMessage());
+            logPullFailure('dataPullAsync',
+                e.getTypeName() + ': ' + e.getMessage(), null, null);
+        }
+    }
+
+    public static void pull(String email) {
+        if (String.isBlank(email)) {
+            System.debug(LoggingLevel.WARN, 'OAP_Cfrims2DataPullService.pull: blank email, skipping');
+            return;
+        }
+        Map<String, String> handshake = OAP_Cfrims2SessionCache.getHandshake(UserInfo.getUserId());
+        if (handshake == null) {
+            throw new OAP_CFRIMS_ApiClient.CFRIMS_Exception(
+                'No active CFRIMS session - please sign in again.');
+        }
+        try {
+            pullWithHandshake(email, handshake);
+        } catch (Exception e) {
+            // Catch any QueryException / NullPointerException from called services
+            // so it surfaces as a clear error rather than FATAL_ERROR
+            System.debug(LoggingLevel.ERROR,
+                'OAP_Cfrims2DataPullService.pull failed for ' + email
+                + ': ' + e.getTypeName()
+                + ' | ' + e.getMessage()
+                + ' | line: ' + e.getLineNumber()
+                + ' | stack: ' + e.getStackTraceString());
+            throw e; // re-throw so callers know it failed
+        }
+    }
+
+    private static void pullWithHandshake(String email, Map<String, String> handshake) {
+        handshake = ensureApplicantData(email, handshake);
+        OAP_CFRIMS_ApiClient.DashboardResponse resp = OAP_CFRIMS_ApiClient.getDashboard(handshake, email);
+
+        // Log the dashboard API call — creates CFRIMS API Log History record
+        try {
+            CFRIMS_Logger.CFRIMSlogAPI(
+                'getDashboard',
+                dashboardEndpointForLog(),
+                'GET', '', resp.res.getBody(),
+                resp.res.getStatusCode(),
+                resp.res.getStatusCode() == 200,
+                resp.res.getStatusCode() != 200
+                    ? 'Dashboard pull failed: ' + resp.res.getStatusCode() : null,
+                null, null
+            );
+            CFRIMS_Logger.flush();
+        } catch (Exception logEx) {
+            System.debug(LoggingLevel.WARN,
+                'Dashboard API log failed (non-fatal): ' + logEx.getMessage());
+        }
+
+        if (resp.res.getStatusCode() != 200 || String.isBlank(resp.decryptedBody)) {
+            throw new OAP_CFRIMS_ApiClient.CFRIMS_Exception(
+                'Dashboard pull failed: ' + resp.res.getStatusCode());
+        }
+
+        String rawDashboardBody = resp.decryptedBody;
+
+        DashboardPayload dashboard;
+        try {
+            dashboard = (DashboardPayload) JSON.deserialize(
+                rawDashboardBody, DashboardPayload.class);
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR,
+                'Could not parse dashboard payload: ' + e.getMessage());
+            logPullFailure('dataPullParse',
+                'Could not parse dashboard payload: ' + e.getMessage(), null, null);
+            return;
+        }
+        if (dashboard == null) return;
+
+        Map<String, Object> handshakeApplicantData =
+            parseHandshakeApplicantData(handshake.get('rawBody'));
+
+        Id accountId = upsertApplicant(
+            email, dashboard.personal_info, handshakeApplicantData);
+        if (accountId == null) {
+            System.debug(LoggingLevel.WARN,
+                'Skipping application/task pull - no Account found for ' + email);
+            return;
+        }
+
+        String userKey = handshake.get('user_key');
+        if (String.isNotBlank(userKey) && accountId != null) {
+            try {
+                Account acctKey = new Account(Id = accountId);
+                acctKey.user_key__pc               = userKey;
+                acctKey.CFRIMS_User_Identifier__pc = handshake.get('userIdentifier');
+                update acctKey;
+                System.debug('OAP_Cfrims2DataPullService: user_key set on Account ' + accountId);
+            } catch (DmlException e) {
+                System.debug(LoggingLevel.WARN,
+                    'OAP_Cfrims2DataPullService: could not set user_key on Account: '
+                    + e.getMessage());
+            }
+        }
+
+        // Mapping doc: applicant_status / applicant_file_status → Account
+        // (raw CFRIMS codes, same fields the DashboardFetcher writes).
+        applyApplicantStatuses(accountId, dashboard);
+
+        Id primaryFormId = upsertApplicationFormFromHandshake(
+            accountId, dashboard.applications, handshakeApplicantData, dashboard,
+            parseHandshakeCompletedFlag(handshake.get('rawBody')),
+            extractBinName(rawDashboardBody));
+
+        if (parseHandshakeReapplyFlag(handshake.get('rawBody')) == true) {
+            ensureReapplyDraft(accountId, primaryFormId);
+        }
+
+        // Mapping doc: occ_display_mos / occ_display_component → ApplicationForm.
+        applyOccupationDisplay(primaryFormId, dashboard);
+        
+        try {
+            Map<String, Object> rawRoot =
+                (Map<String, Object>) JSON.deserializeUntyped(rawDashboardBody);
+            if (rawRoot.containsKey('applicant_appointments')) {
+                OAP_TaskUtils.reconcileDashboardAppointments(
+                    accountId,
+                    JSON.serialize(rawRoot.get('applicant_appointments')));
+            }
+        } catch (Exception appointmentEx) {
+            System.debug(LoggingLevel.ERROR,
+                'OAP_Cfrims2DataPullService: appointment reconciliation failed: '
+                + appointmentEx.getMessage());
+            logPullFailure('dataPullAppointments',
+                'Appointment reconciliation failed: ' + appointmentEx.getMessage(),
+                String.valueOf(accountId), null);
+        }
+
+        // Create ApplicationFormEvaluation if one doesn't exist
+        Id evaluationId = findOrCreateEvaluation(primaryFormId);
+        System.debug('OAP_Cfrims2DataPullService: evaluationId=' + evaluationId
+            + ' | primaryFormId=' + primaryFormId);
+
+        if (primaryFormId != null) {
+            try {
+                // Pass primaryFormId — task sync service uses form ID not evaluation ID
+                OAP_CFRIMS_TaskSyncService.upsertTasks(rawDashboardBody, primaryFormId, accountId);
+                System.debug('OAP_Cfrims2DataPullService: tasks upserted for form ' + primaryFormId);
+            } catch (Exception e) {
+                System.debug(LoggingLevel.ERROR,
+                    'Task delegation failed: ' + e.getTypeName()
+                    + ' | ' + e.getMessage()
+                    + ' | line: ' + e.getLineNumber());
+                logPullFailure('dataPullTaskSync',
+                    'Task delegation failed: ' + e.getTypeName() + ': ' + e.getMessage(),
+                    String.valueOf(accountId), String.valueOf(primaryFormId));
+            }
+        } else {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: skipping task sync — primaryFormId is null');
+        }
+    }
+
+    /** applicant_status / applicant_file_status → Account (raw CFRIMS codes). */
+    @TestVisible
+    private static void applyApplicantStatuses(Id accountId, DashboardPayload dashboard) {
+        if (accountId == null || dashboard == null) return;
+        if (dashboard.applicant_status == null
+                && dashboard.applicant_file_status == null) return;
+        try {
+            Account statusUpdate = new Account(Id = accountId);
+            if (dashboard.applicant_status != null) {
+                statusUpdate.CFRIMS_Applicant_Status__pc = dashboard.applicant_status;
+            }
+            if (dashboard.applicant_file_status != null) {
+                statusUpdate.CFRIMS_Applicant_File_Status__pc = dashboard.applicant_file_status;
+            }
+            update statusUpdate;
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: applicant status update failed: '
+                + e.getMessage());
+            logPullFailure('dataPullApplicantStatus',
+                'Applicant status update failed: ' + e.getMessage(),
+                String.valueOf(accountId), null);
+        }
+    }
+   
+    @TestVisible
+    private static void applyOccupationDisplay(Id formId, DashboardPayload dashboard) {
+        if (formId == null || dashboard == null) return;
+        if (dashboard.occ_display_mos == null
+                && dashboard.occ_display_component == null) return;
+        try {
+            ApplicationForm formUpdate = new ApplicationForm(Id = formId);
+            if (dashboard.occ_display_mos != null) {
+                formUpdate.OAP_Occupation_Display__c = dashboard.occ_display_mos;
+            }
+            if (dashboard.occ_display_component != null) {
+                formUpdate.Occupation_Display_Component__c = dashboard.occ_display_component;
+            }
+            // SYSTEM_MODE for parity with the DashboardFetcher / TaskSyncService
+            // mirrors of this mapping — portal users lack reliable FLS here.
+            Database.update(formUpdate, AccessLevel.SYSTEM_MODE);
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: occupation display update failed: '
+                + e.getMessage());
+            logPullFailure('dataPullOccDisplay',
+                'Occupation display update failed: ' + e.getMessage(),
+                null, String.valueOf(formId));
+        }
+    }
+
+    @TestVisible
+    private static Id findOrCreateEvaluation(Id formId) {
+        if (formId == null) {
+            System.debug(LoggingLevel.WARN,
+                'findOrCreateEvaluation: null ApplicationForm Id, returning null');
+            return null;
+        }
+        List<ApplicationFormEvaluation> existing = [
+            SELECT Id FROM ApplicationFormEvaluation
+            WHERE ApplicationFormId = :formId
+            ORDER BY LastModifiedDate DESC
+            LIMIT 1
+        ];
+        if (!existing.isEmpty()) return existing[0].Id;
+
+        ApplicationFormEvaluation eval = new ApplicationFormEvaluation();
+        eval.ApplicationFormId = formId;
+        // Status is not a field on ApplicationFormEvaluation — removed.
+        // Decision picklist is set once a reviewer acts on it.
+        try {
+            insert eval;
+            return eval.Id;
+        } catch (DmlException e) {
+            System.debug(LoggingLevel.ERROR,
+                'Could not create ApplicationFormEvaluation for form '
+                + formId + ': ' + e.getMessage());
+            return null;
+        }
+    }
+
+   
+    @TestVisible
+    private static Boolean parseHandshakeCompletedFlag(String rawHandshakeBody) {
+        return parseHandshakeFlag(rawHandshakeBody, 'application_completed');
+    }
+
+    /** CFRIMS handshake opened_for_reapply = 1: the applicant's previous file
+     *  is closed and CFRIMS accepts a new application from them. */
+    public static Boolean parseHandshakeReapplyFlag(String rawHandshakeBody) {
+        return parseHandshakeFlag(rawHandshakeBody, 'opened_for_reapply');
+    }
+
+    private static Boolean parseHandshakeFlag(String rawHandshakeBody, String key) {
+        if (String.isBlank(rawHandshakeBody)) return null;
+        try {
+            Map<String, Object> root =
+                (Map<String, Object>) JSON.deserializeUntyped(rawHandshakeBody);
+            Object flag = root.get(key);
+            if (flag == null) return null;
+            String s = String.valueOf(flag).toLowerCase();
+            return s == '1' || s == 'true';
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN,
+                'parseHandshakeFlag(' + key + '): bad handshake body: ' + e.getMessage());
+            return null;
+        }
+    }
+
+    /** The ApplicationForm that mirrors the CFRIMS file for this account:
+     *  the newest non-Draft (or CFRIMS-synced) form, falling back to the
+     *  newest form of any stage when none has been submitted yet. Keeps a
+     *  reapply Draft from being overwritten by dashboard/handshake data. */
+    public static Id cfrimsSyncedFormId(Id accountId) {
+        if (accountId == null) return null;
+        List<ApplicationForm> forms = [
+            SELECT Id, Stage, CFRIMS_Synced__c
+            FROM ApplicationForm
+            WHERE AccountId = :accountId
+            ORDER BY CreatedDate DESC
+        ];
+        ApplicationForm picked = pickCfrimsSyncedForm(forms);
+        return picked == null ? null : picked.Id;
+    }
+
+    private static ApplicationForm pickCfrimsSyncedForm(List<ApplicationForm> newestFirst) {
+        if (newestFirst == null || newestFirst.isEmpty()) return null;
+        for (ApplicationForm f : newestFirst) {
+            if (f.Stage != STAGE_DRAFT || f.CFRIMS_Synced__c == true) return f;
+        }
+        return newestFirst[0];
+    }
+
+    /** Fields carried from the closed application into the reapply Draft so
+     *  the applicant does not re-enter unchanged answers. */
+    private static final List<String> REAPPLY_PREFILL_FIELDS = new List<String>{
+        'UsageType',
+        'OAP_Highest_Level_of_Education__c',
+        'OAP_Preferred_Language_Correspondence__c',
+        'OAP_Preferred_Language_for_Written_Exam__c',
+        'OAP_Preferred_Language_Interview__c',
+        'OAP_Indigenous_Summer_Program__c',
+        'OAP_Consent_Employment_Equity_Data__c',
+        'OAP_Self_Identify_Indigenous_Person__c',
+        'OAP_Self_Identify_Visible_Minority__c',
+        'OAP_Citizen_of_Country_other_than_Canada__c',
+        'OAP_Date_Canadian_PR_Granted__c',
+        'OAP_Permanent_Resident_Number__c',
+        'OAP_Criminal_Record_Active_Obligations__c',
+        'OAP_Prior_Service_in_Foreign_Military__c',
+        'OAP_Born_Outside_Canada__c',
+        'OAP_Ownership_of_Foreign_Assets__c',
+        'OAP_Outside_Canada_180_Consecutive_Days__c',
+        'OAP_Immediate_Family_Living_Abroad__c',
+        'OAP_Previously_Qualified_CAF_Occupation__c',
+        'OAP_Prior_Enrolment_Component_CAF__c',
+        'OAP_Interested_Reapply_Prior_Role__c'
+    };
+
+    /** Ensures the account has a Draft ApplicationForm to reapply with.
+     *  Returns the existing Draft when one already exists (never creates a
+     *  second), otherwise clones the prefill fields of sourceFormId into a
+     *  new Draft. Returns null when nothing could be created. */
+    @TestVisible private static String lastReapplyDraftError;
+
+    public static Id ensureReapplyDraft(Id accountId, Id sourceFormId) {
+        if (accountId == null) return null;
+        lastReapplyDraftError = null;
+        try {
+            List<ApplicationForm> drafts = [
+                SELECT Id FROM ApplicationForm
+                WHERE AccountId = :accountId AND Stage = :STAGE_DRAFT
+                  AND CFRIMS_Synced__c = false
+                ORDER BY CreatedDate DESC LIMIT 1
+            ];
+            if (!drafts.isEmpty()) return drafts[0].Id;
+
+            ApplicationForm draft = new ApplicationForm(
+                AccountId        = accountId,
+                Stage            = STAGE_DRAFT,
+                UsageType        = USAGE_TYPE_DEFAULT,
+                CFRIMS_Synced__c = false
+            );
+            String draftStatus = picklistApiName(
+                ApplicationForm.ApplicationStatus.getDescribe(), STAGE_DRAFT);
+            if (draftStatus != null) draft.ApplicationStatus = draftStatus;
+
+            if (sourceFormId != null) {
+                String soql = 'SELECT ' + String.join(REAPPLY_PREFILL_FIELDS, ', ')
+                    + ' FROM ApplicationForm WHERE Id = :sourceFormId LIMIT 1';
+                List<ApplicationForm> sources = Database.query(soql);
+                if (!sources.isEmpty()) {
+                    for (String f : REAPPLY_PREFILL_FIELDS) {
+                        Object v = sources[0].get(f);
+                        if (v != null) draft.put(f, v);
+                    }
+                }
+            }
+
+            insert draft;
+            System.debug('OAP_Cfrims2DataPullService: reapply Draft ' + draft.Id
+                + ' created for account ' + accountId + ' from ' + sourceFormId);
+            try {
+                CFRIMS_Logger.CFRIMSlogAPI(
+                    'reapplyDraftCreated', dashboardEndpointForLog(), 'GET', '',
+                    'Created reapply Draft ' + draft.Id + ' from ' + sourceFormId,
+                    200, true, null, String.valueOf(accountId), String.valueOf(draft.Id));
+                CFRIMS_Logger.flush();
+            } catch (Exception logEx) {}
+            return draft.Id;
+        } catch (Exception e) {
+            lastReapplyDraftError = e.getTypeName() + ' | ' + e.getMessage()
+                + ' | ' + e.getStackTraceString();
+            System.debug(LoggingLevel.ERROR,
+                'OAP_Cfrims2DataPullService.ensureReapplyDraft failed for '
+                + accountId + ': ' + lastReapplyDraftError);
+            logPullFailure('reapplyDraftCreate',
+                'Reapply Draft creation failed: ' + e.getMessage(),
+                String.valueOf(accountId), null);
+            return null;
+        }
+    }
+
+    /**
+     * A session built from a reused access token carries no handshake body
+     * (rawBody = null), so applicant_data — the only source of Personal
+     * Information (sex, birth place, citizenship, language…) — is absent.
+     * Re-handshake in that case so the import gets the full applicant record.
+     */
+    @TestVisible
+    private static Map<String, String> ensureApplicantData(
+            String email, Map<String, String> handshake) {
+        if (handshake == null) return null;
+        if (parseHandshakeApplicantData(handshake.get('rawBody')) != null) return handshake;
+        try {
+            Map<String, String> fresh = OAP_CFRIMS_ApiClient.performHandshake(
+                email, handshake.get('userIdentifier'), handshake.get('clientSessionId'));
+            if (fresh != null && String.isNotBlank(fresh.get('accessToken'))
+                    && parseHandshakeApplicantData(fresh.get('rawBody')) != null) {
+                OAP_Cfrims2SessionCache.putHandshake(UserInfo.getUserId(), fresh);
+                return fresh;
+            }
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: re-handshake returned no applicant_data — '
+                + 'Personal Information will not be refreshed');
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: re-handshake for applicant_data failed: '
+                + e.getMessage());
+        }
+        return handshake;
+    }
+
+    private static Map<String, Object> parseHandshakeApplicantData(String rawHandshakeBody) {
+        if (String.isBlank(rawHandshakeBody)) return null;
+        try {
+            Map<String, Object> root =
+                (Map<String, Object>) JSON.deserializeUntyped(rawHandshakeBody);
+            Object applicantData = root.get('applicant_data');
+            if (applicantData == null) return null;
+            return (Map<String, Object>) applicantData;
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN,
+                'parseHandshakeApplicantData: bad handshake body: ' + e.getMessage());
+            return null;
+        }
+    }
+
+    private static Id upsertApplicant(
+            String email,
+            DashboardPayload.PersonalInfo dashboardInfo,
+            Map<String, Object> handshakeApplicantData) {
+
+        List<Account> matches = [
+            SELECT Id, PersonEmail,
+                   CFRIMS_Alpha_Number__pc,
+                   CFRIMS_User_Identifier__pc,
+                   user_key__pc,
+                   CFRIMS_Sync_Status__pc,
+                   CFRIMS_Last_Dashboard_Sync__pc,
+                   OAP_Canadian_Service_Number__c,
+                   PersonBirthdate, LastName, FirstName,
+                   OAP_Birth_City__c, OAP_Birth_Country__c,
+                   OAP_Birth_Province_State__c,
+                   OAP_Sex_at_Birth__c, PersonGenderIdentity,
+                   Primary_Language__c, OAP_Citizenship__c,
+                   Permanent_Resident_Number__c,
+                   Permanent_Resident_Effective_Date__c,
+                   OAP_Preferred_Name__c,
+                   OAP_Twin_Siblings__c,
+                   Phone, PersonOtherPhone,
+                   OAP_Phone_SMS_Consent__c,
+                   OAP_OtherPhone_SMS_Consent__c,
+                   OAP_Multiple_Addresses__c,
+                   PersonMailingStreet, PersonMailingCity,
+                   PersonMailingState, PersonMailingPostalCode,
+                   PersonMailingCountry,
+                   PersonOtherStreet, PersonOtherCity,
+                   PersonOtherState, PersonOtherPostalCode,
+                   PersonOtherCountry
+            FROM Account
+            WHERE PersonEmail = :email
+            ORDER BY CreatedDate ASC
+            LIMIT 2
+        ];
+
+        if (matches.isEmpty()) {
+            System.debug(LoggingLevel.ERROR,
+                'No Person Account found with PersonEmail = ' + email);
+            return null;
+        }
+        if (matches.size() > 1) {
+            System.debug(LoggingLevel.WARN,
+                'Multiple Person Accounts share PersonEmail = ' + email
+                + ' — syncing the oldest (' + matches[0].Id + ')');
+        }
+
+        Account acct = matches[0];
+        Map<String, Object> hsPersonal = readMap(handshakeApplicantData, 'personal_info');
+
+        String givenName = readString(hsPersonal, 'pers_GivenName');
+        if (String.isNotBlank(givenName)) acct.FirstName = givenName;
+
+        String surname = readString(hsPersonal, 'pers_Surname');
+        if (String.isBlank(surname) && dashboardInfo != null) surname = dashboardInfo.pers_Surname;
+        if (String.isNotBlank(surname)) acct.LastName = surname;
+
+        String preferredName = readString(hsPersonal, 'pers_Preferredname');
+        if (String.isNotBlank(preferredName)) acct.OAP_Preferred_Name__c = preferredName;
+
+        Boolean twins = readBooleanFlag(hsPersonal, 'pers_Twins');
+        if (twins != null) acct.OAP_Twin_Siblings__c = translateBooleanToPicklist(twins);
+
+        String dobStr = readString(hsPersonal, 'pers_DateOfBirth');
+        if (String.isNotBlank(dobStr)) {
+            try { acct.PersonBirthdate = Date.valueOf(dobStr); }
+            catch (Exception e) {
+                System.debug(LoggingLevel.WARN, 'Unparseable pers_DateOfBirth: ' + dobStr);
+            }
+        }
+
+        String birthCity = readString(hsPersonal, 'pers_DateOfBirthCity');
+        if (String.isNotBlank(birthCity)) acct.OAP_Birth_City__c = birthCity;
+
+        String birthCountry = readString(hsPersonal, 'pers_DateOfBirthCountry');
+        if (String.isNotBlank(birthCountry)) {
+            String mappedCountry = picklistApiName(
+                Account.OAP_Birth_Country__c.getDescribe(),
+                OAP_CfrimsAddressHelper.countryName(birthCountry));
+            if (mappedCountry != null) {
+                acct.OAP_Birth_Country__c = mappedCountry;
+            } else {
+                System.debug(LoggingLevel.WARN,
+                    'Unrecognized pers_DateOfBirthCountry from CFRIMS: ' + birthCountry
+                    + ' — leaving OAP_Birth_Country__c unchanged');
+            }
+        }
+
+        String birthProvince = readString(hsPersonal, 'pers_DateOfBirthProvince');
+        if (String.isNotBlank(birthProvince)) {
+            String mappedProvince = resolvePicklistOrText(
+                Account.OAP_Birth_Province_State__c.getDescribe(),
+                new List<String>{
+                    OAP_CfrimsAddressHelper.provinceName(birthProvince), birthProvince });
+            if (mappedProvince != null) acct.OAP_Birth_Province_State__c = mappedProvince;
+        }
+
+        String sex = readString(hsPersonal, 'pers_Sex');
+        if (String.isNotBlank(sex)) {
+            String mapped = translateSex(sex);
+            String sexApi = mapped == null ? null : resolvePicklistOrText(
+                Account.OAP_Sex_at_Birth__c.getDescribe(),
+                new List<String>{ mapped, sex });
+            if (sexApi != null) {
+                acct.OAP_Sex_at_Birth__c = sexApi;
+            } else {
+                System.debug(LoggingLevel.WARN,
+                    'OAP_Cfrims2DataPullService: pers_Sex "' + sex
+                    + '" has no active OAP_Sex_at_Birth__c value — left unchanged');
+            }
+        }
+
+        String primaryLangApi = languageApiName(
+            Account.Primary_Language__c.getDescribe(),
+            readString(hsPersonal, 'language_official'));
+        if (primaryLangApi != null) acct.Primary_Language__c = primaryLangApi;
+
+        Map<String, Object> hsCit = readMap(handshakeApplicantData, 'citizenship');
+        String citizenshipApi = citizenshipApiName(
+            readBooleanFlag(hsCit, 'citizenship_canadian'),
+            readBooleanFlag(hsCit, 'citizenship_permanent'));
+        if (citizenshipApi != null) acct.OAP_Citizenship__c = citizenshipApi;
+
+        String prNumber = readString(hsCit, 'permanent_resident_number');
+        if (String.isNotBlank(prNumber)) acct.Permanent_Resident_Number__c = prNumber;
+        Date prEffective = parseDateLenient(firstNonBlank(new List<String>{
+            readString(hsCit, 'permanent_resident_date'),
+            readString(hsCit, 'date_permanent_resident_granted')
+        }));
+        if (prEffective != null) acct.Permanent_Resident_Effective_Date__c = prEffective;
+
+        String gender = readString(hsPersonal, 'pers_Gender');
+        if (String.isNotBlank(gender)) {
+            String genderApi = genderIdentityApiName(translateGender(gender));
+            if (genderApi != null) {
+                acct.PersonGenderIdentity = genderApi;
+            } else {
+                System.debug(LoggingLevel.WARN,
+                    'OAP_Cfrims2DataPullService: pers_Gender "' + gender
+                    + '" has no active PersonGenderIdentity value — left unchanged');
+            }
+        }
+
+        if (dashboardInfo != null && String.isNotBlank(dashboardInfo.alpha_nb))
+            acct.CFRIMS_Alpha_Number__pc = dashboardInfo.alpha_nb;
+        if (dashboardInfo != null && String.isNotBlank(dashboardInfo.service_nb))
+            acct.OAP_Canadian_Service_Number__c = dashboardInfo.service_nb;
+
+        Map<String, Object> hsPrevService = readMap(handshakeApplicantData, 'previous_service');
+        String prevServiceNumber = readString(hsPrevService, 'prev_servicenumber');
+        if (String.isNotBlank(prevServiceNumber)) acct.OAP_Canadian_Service_Number__c = prevServiceNumber;
+
+        Map<String, Object> hsPhone = readMap(handshakeApplicantData, 'phone');
+        String primaryPhone = firstNonBlank(new List<String>{
+            readString(hsPhone, 'primary_phone'), readString(hsPhone, 'phone_number'),
+            readString(hsPhone, 'primary'), readString(hsPhone, 'number')
+        });
+        if (String.isNotBlank(primaryPhone)) acct.Phone = primaryPhone;
+
+        String secondaryPhone = readString(hsPhone, 'secondary_phone');
+        if (String.isNotBlank(secondaryPhone)) acct.PersonOtherPhone = secondaryPhone;
+
+        Boolean primarySms = readBooleanFlag(hsPhone, 'primary_phone_text');
+        if (primarySms != null) acct.OAP_Phone_SMS_Consent__c = primarySms;
+
+        Boolean secondarySms = readBooleanFlag(hsPhone, 'secondary_phone_text');
+        if (secondarySms != null) acct.OAP_OtherPhone_SMS_Consent__c = secondarySms;
+
+        Map<String, Object> hsHomeAddress    = readMap(handshakeApplicantData, 'address');
+        Map<String, Object> hsMailingAddress = readMap(handshakeApplicantData, 'mailing_address');
+
+        Boolean sameAsHome = readBooleanFlag(hsHomeAddress, 'mailing_same_as_home');
+        if (sameAsHome != null) acct.OAP_Multiple_Addresses__c = translateBooleanToPicklist(sameAsHome);
+
+        // Mailing address falls back to the home address when CFRIMS sends none
+        // (mailing same as home). Home address always populates the Other address.
+        if (hsMailingAddress != null) applyAddress(acct, hsMailingAddress, true);
+        else if (hsHomeAddress != null) applyAddress(acct, hsHomeAddress, true);
+        if (hsHomeAddress != null) applyAddress(acct, hsHomeAddress, false);
+
+        if (acct.CFRIMS_Sync_Status__pc != 'Failed') {
+            acct.CFRIMS_Sync_Status__pc = 'Success';
+        }
+        acct.CFRIMS_Last_Dashboard_Sync__pc = DateTime.now();
+
+        try {
+            update acct;
+        } catch (DmlException e) {
+           
+            System.debug(LoggingLevel.ERROR,
+                'Account update failed for ' + acct.Id + ': ' + e.getMessage());
+            logPullFailure('dataPullAccountUpdate',
+                'Account update failed: ' + e.getMessage(),
+                String.valueOf(acct.Id), null);
+            try {
+                update new Account(
+                    Id = acct.Id,
+                    CFRIMS_Sync_Status__pc = 'Failed',
+                    CFRIMS_Last_Dashboard_Sync__pc = DateTime.now()
+                );
+            } catch (Exception stampEx) {
+                System.debug(LoggingLevel.WARN,
+                    'Could not stamp sync failure on Account ' + acct.Id
+                    + ': ' + stampEx.getMessage());
+            }
+        }
+        return acct.Id;
+    }
+
+    private static Id upsertApplicationFormFromHandshake(
+            Id accountId,
+            List<DashboardPayload.Application> dashboardApps,
+            Map<String, Object> handshakeApplicantData,
+            DashboardPayload dashboard,
+            Boolean handshakeCompleted,
+            String binName) {
+
+        List<ApplicationForm> existing = [
+            SELECT Id, AccountId, Stage, ApplicationStatus, SubmissionDate, UsageType,
+                   Application_Signature__c, CFRIMS_Synced__c, CFRIMS_Correlation_Id__c,
+                   CFRIMS_Last_Sync_Error__c, OAP_Highest_Level_of_Education__c,
+                   OAP_Preferred_Language_Correspondence__c,
+                   OAP_Preferred_Language_for_Written_Exam__c,
+                   OAP_Preferred_Language_Interview__c,
+                   OAP_Indigenous_Summer_Program__c,
+                   OAP_Consent_Employment_Equity_Data__c,
+                   OAP_Self_Identify_Indigenous_Person__c,
+                   OAP_Self_Identify_Visible_Minority__c,
+                   OAP_Citizen_of_Country_other_than_Canada__c,
+                   OAP_Date_Canadian_PR_Granted__c,
+                   OAP_Criminal_Record_Active_Obligations__c,
+                   OAP_Prior_Service_in_Foreign_Military__c,
+                   OAP_Born_Outside_Canada__c,
+                   OAP_Ownership_of_Foreign_Assets__c,
+                   OAP_Outside_Canada_180_Consecutive_Days__c,
+                   OAP_Immediate_Family_Living_Abroad__c,
+                   OAP_Previously_Qualified_CAF_Occupation__c,
+                   OAP_Prior_Enrolment_Component_CAF__c,
+                   OAP_Interested_Reapply_Prior_Role__c
+            FROM ApplicationForm
+            WHERE AccountId = :accountId
+            ORDER BY LastModifiedDate DESC
+        ];
+
+        Boolean isNewForm = existing.isEmpty();
+        ApplicationForm form = isNewForm ? new ApplicationForm() : pickCfrimsSyncedForm(existing);
+        form.AccountId = accountId;
+        if (isNewForm) form.UsageType = USAGE_TYPE_DEFAULT;
+
+        Boolean cfrimsSaysDraft = dashboard != null
+            && (isDraftStatusCode(dashboard.applicant_status) || isDraftBin(binName));
+
+        if (cfrimsSaysDraft) {
+            form.Stage = STAGE_DRAFT;
+        } else if (dashboardApps != null && !dashboardApps.isEmpty()) {
+            DashboardPayload.Application cfrimsApp = dashboardApps[0];
+            form.Stage = cfrimsApp.application_completed == 1 ? stageCompleted() : STAGE_DRAFT;
+            if (String.isNotBlank(cfrimsApp.submission_date)) {
+                try { form.SubmissionDate = Date.valueOf(cfrimsApp.submission_date); }
+                catch (Exception e) {
+                    System.debug(LoggingLevel.WARN,
+                        'Unparseable submission_date: ' + cfrimsApp.submission_date);
+                }
+            }
+        } else {
+            
+            Boolean statusSubmitted = dashboard != null
+                && String.isNotBlank(dashboard.applicant_status)
+                && SUBMITTED_STATUS_CODES.contains(dashboard.applicant_status);
+            if (handshakeCompleted == true || statusSubmitted) {
+                if (String.isBlank(form.Stage) || form.Stage == STAGE_DRAFT) {
+                    form.Stage = stageCompleted();
+                }
+            } else if (isNewForm && String.isBlank(form.Stage)) {
+                form.Stage = STAGE_DRAFT;
+            }
+        }
+
+        String submitSignature = readString(handshakeApplicantData, 'submit_signature');
+        if (String.isNotBlank(submitSignature)) form.Application_Signature__c = submitSignature;
+
+        String consentDateStr = firstNonBlank(new List<String>{
+            readString(handshakeApplicantData, 'submit_consent_date'),
+            readString(handshakeApplicantData, 'submit_conditional_offer_date')
+        });
+        if (String.isNotBlank(consentDateStr) && form.SubmissionDate == null) {
+            try {
+                String datePart = consentDateStr.length() >= 10
+                    ? consentDateStr.substring(0, 10) : consentDateStr;
+                form.SubmissionDate = Date.valueOf(datePart);
+            } catch (Exception e) {
+                System.debug(LoggingLevel.WARN,
+                    'Unparseable consent date: ' + consentDateStr);
+            }
+        }
+        // Fallback of last resort: a completed application must carry a
+        // submission date even when CFRIMS did not return one.
+        if (form.SubmissionDate == null && form.Stage == stageCompleted()) {
+            form.SubmissionDate = Date.today();
+        }
+
+        Map<String, Object> hsPersonal = readMap(handshakeApplicantData, 'personal_info');
+        String langCorrespondence = firstNonBlank(new List<String>{
+            readString(hsPersonal, 'language_correpondence'),
+            readString(hsPersonal, 'language_correspondence'),
+            readString(hsPersonal, 'language_official')
+        });
+        String langCorrApi = languageApiName(
+            ApplicationForm.OAP_Preferred_Language_Correspondence__c.getDescribe(),
+            langCorrespondence);
+        if (langCorrApi != null)
+            form.OAP_Preferred_Language_Correspondence__c = langCorrApi;
+
+        String langExamApi = languageApiName(
+            ApplicationForm.OAP_Preferred_Language_for_Written_Exam__c.getDescribe(),
+            readString(hsPersonal, 'language_exam'));
+        if (langExamApi != null)
+            form.OAP_Preferred_Language_for_Written_Exam__c = langExamApi;
+
+        String langInterviewApi = languageApiName(
+            ApplicationForm.OAP_Preferred_Language_Interview__c.getDescribe(),
+            readString(hsPersonal, 'language_interview'));
+        if (langInterviewApi != null)
+            form.OAP_Preferred_Language_Interview__c = langInterviewApi;
+
+        String rawEducationLevel = readString(hsPersonal, 'education_level');
+        if (String.isNotBlank(rawEducationLevel)) {
+            String mappedEdu = educationApiName(rawEducationLevel);
+            if (mappedEdu != null) {
+                form.OAP_Highest_Level_of_Education__c = mappedEdu;
+            } else {
+                System.debug(LoggingLevel.WARN,
+                    'Unrecognized education_level from CFRIMS: ' + rawEducationLevel);
+            }
+        }
+
+        Map<String, Object> hsPrevService = readMap(handshakeApplicantData, 'previous_service');
+        String prevTrade = readString(hsPrevService, 'prev_trade');
+        if (String.isNotBlank(prevTrade)) {
+            String mappedTrade = PREV_TRADE_MAP.get(prevTrade.toLowerCase());
+            if (mappedTrade != null) form.OAP_Previously_Qualified_CAF_Occupation__c = mappedTrade;
+        }
+        String prevService = readString(hsPrevService, 'prev_service');
+        if (String.isNotBlank(prevService)) {
+            String mappedService = PREV_SERVICE_MAP.get(prevService.toLowerCase());
+            if (mappedService != null) form.OAP_Prior_Enrolment_Component_CAF__c = mappedService;
+        }
+        Boolean reapplying = readBooleanFlag(hsPrevService, 'reapplyingForATrade');
+        if (reapplying != null) form.OAP_Interested_Reapply_Prior_Role__c = translateBooleanToPicklist(reapplying);
+
+        Map<String, Object> hsDeclaration = readMap(handshakeApplicantData, 'declaration');
+        Boolean eeSelf = readBooleanFlag(hsDeclaration, 'ee_selfDeclaration');
+        // OAP_Consent_Employment_Equity_Data__c is a Yes/No picklist — not a Checkbox
+        if (eeSelf != null) form.OAP_Consent_Employment_Equity_Data__c = translateBooleanToPicklist(eeSelf);
+        Boolean eeInd = readBooleanFlag(hsDeclaration, 'ee_indigenous');
+        if (eeInd != null) form.OAP_Self_Identify_Indigenous_Person__c = translateBooleanToPicklist(eeInd);
+        Boolean eeNon = readBooleanFlag(hsDeclaration, 'ee_nonindigenous');
+        if (eeNon != null) form.OAP_Self_Identify_Visible_Minority__c = translateBooleanToPicklist(eeNon);
+
+        Map<String, Object> hsCitizenship = readMap(handshakeApplicantData, 'citizenship');
+        Boolean citForeign = readBooleanFlag(hsCitizenship, 'citizenship_foreign');
+        if (citForeign != null) form.OAP_Citizen_of_Country_other_than_Canada__c = translateBooleanToPicklist(citForeign);
+        Date citizenshipDate = parseDateLenient(readString(hsCitizenship, 'citizenship_date'));
+        if (citizenshipDate != null) form.OAP_Date_Canadian_Citizenship_Granted__c = citizenshipDate;
+        Date entryDate = parseDateLenient(readString(hsCitizenship, 'date_entry_in_Canada'));
+        if (entryDate != null) form.OAP_Date_Entry_In_Canada__c = entryDate;
+        String formPrNumber = readString(hsCitizenship, 'permanent_resident_number');
+        if (String.isNotBlank(formPrNumber)) form.OAP_Permanent_Resident_Number__c = formPrNumber;
+        String prDateStr = readString(hsCitizenship, 'permanent_resident_date');
+        if (String.isNotBlank(prDateStr)) {
+            try {
+                form.OAP_Date_Canadian_PR_Granted__c = Date.valueOf(
+                    prDateStr.length() >= 10 ? prDateStr.substring(0, 10) : prDateStr);
+            } catch (Exception e) {
+                System.debug(LoggingLevel.WARN,
+                    'Unparseable permanent_resident_date: ' + prDateStr);
+            }
+        }
+
+        Map<String, Object> hsBiography = readMap(handshakeApplicantData, 'biography');
+        Boolean criminal = readBooleanFlag(hsBiography, 'criminalConviction');
+        if (criminal != null) form.OAP_Criminal_Record_Active_Obligations__c = translateBooleanToPicklist(criminal);
+        Boolean foreignMil = readBooleanFlag(hsBiography, 'foreignMilitaryService');
+        if (foreignMil != null) form.OAP_Prior_Service_in_Foreign_Military__c = translateBooleanToPicklist(foreignMil);
+        Boolean bornOut = readBooleanFlag(hsBiography, 'bornOutside');
+        if (bornOut != null) form.OAP_Born_Outside_Canada__c = translateBooleanToPicklist(bornOut);
+        Boolean assetOut = readBooleanFlag(hsBiography, 'assetOutsideOfCanada');
+        if (assetOut != null) form.OAP_Ownership_of_Foreign_Assets__c = translateBooleanToPicklist(assetOut);
+        Boolean lifeOut = readBooleanFlag(hsBiography, 'lifeOutsideOfCanada');
+        if (lifeOut != null) form.OAP_Outside_Canada_180_Consecutive_Days__c = translateBooleanToPicklist(lifeOut);
+        Boolean relOut = readBooleanFlag(hsBiography, 'immediateRelativeOutcan');
+        if (relOut != null) form.OAP_Immediate_Family_Living_Abroad__c = translateBooleanToPicklist(relOut);
+
+        Map<String, Object> hsEntryPlan = readMap(handshakeApplicantData, 'entry_plan');
+        Boolean indSummer = readBooleanFlag(hsEntryPlan, 'aboriginal_summer_program');
+        if (indSummer != null) form.OAP_Indigenous_Summer_Program__c = indSummer;
+
+        form.CFRIMS_Synced__c          = true;
+        form.CFRIMS_Last_Sync_Error__c = null;
+
+        applyStatusCodeTransformation(form,
+            dashboard == null ? null : dashboard.applicant_status);
+        applyBinTransformation(form, binName);
+
+        try {
+            upsert form;
+          
+            try {
+                CFRIMS_Logger.CFRIMSlogAPI(
+                    'dataPullFormUpsert',
+                    dashboardEndpointForLog(),
+                    'GET', '',
+                    (isNewForm ? 'Created' : 'Updated') + ' ApplicationForm ' + form.Id
+                        + ' | stage=' + form.Stage
+                        + ' | bin=' + binName
+                        + ' | applicationStatus=' + form.ApplicationStatus
+                        + ' | dashboardApps='
+                        + (dashboardApps == null ? 'null' : String.valueOf(dashboardApps.size()))
+                        + ' | handshakeApplicantData='
+                        + (handshakeApplicantData == null ? 'absent' : 'present')
+                        + ' | handshakeCompleted=' + handshakeCompleted,
+                    200, true, null,
+                    String.valueOf(accountId), String.valueOf(form.Id)
+                );
+                CFRIMS_Logger.flush();
+            } catch (Exception logEx) {
+                System.debug(LoggingLevel.WARN,
+                    'Form upsert success log failed (non-fatal): ' + logEx.getMessage());
+            }
+        } catch (DmlException e) {
+            System.debug(LoggingLevel.ERROR, 'ApplicationForm upsert failed: ' + e.getMessage());
+            logPullFailure('dataPullFormUpsert',
+                'ApplicationForm upsert failed: ' + e.getMessage(),
+                String.valueOf(accountId),
+                form.Id != null ? String.valueOf(form.Id) : null);
+            try {
+                if (form.Id != null) {
+                    update new ApplicationForm(
+                        Id = form.Id,
+                        CFRIMS_Synced__c = false,
+                        CFRIMS_Last_Sync_Error__c = e.getMessage().abbreviate(255)
+                    );
+                }
+            } catch (Exception stampEx) {}
+            return null;
+        }
+        return form.Id;
+    }
+
+
+    private static Map<String, Object> readMap(Map<String, Object> parent, String key) {
+        if (parent == null) return null;
+        Object o = parent.get(key);
+        if (o == null) return null;
+        if (o instanceof Map<String, Object>) return (Map<String, Object>) o;
+        return null;
+    }
+
+    private static String readString(Map<String, Object> m, String key) {
+        if (m == null) return null;
+        Object o = m.get(key);
+        return o == null ? null : String.valueOf(o);
+    }
+
+    private static Boolean readBooleanFlag(Map<String, Object> m, String key) {
+        if (m == null) return null;
+        Object o = m.get(key);
+        if (o == null) return null;
+        if (o instanceof Boolean) return (Boolean) o;
+        String s = String.valueOf(o).trim();
+        if (s == '1' || s.equalsIgnoreCase('true') || s.equalsIgnoreCase('yes') || s.equalsIgnoreCase('y')) return true;
+        if (s == '0' || s.equalsIgnoreCase('false') || s.equalsIgnoreCase('no') || s.equalsIgnoreCase('n')) return false;
+        return null;
+    }
+
+    private static String translateBooleanToPicklist(Boolean b) {
+        if (b == null) return null;
+        return b ? 'Yes' : 'No';
+    }
+
+    private static String firstNonBlank(List<String> values) {
+        if (values == null) return null;
+        for (String v : values) {
+            if (String.isNotBlank(v)) return v;
+        }
+        return null;
+    }
+
+    /** Pulls the bin name out of the raw Dashboard JSON (root or applications[0]). */
+    public static String extractBinName(String rawDashboardBody) {
+        if (String.isBlank(rawDashboardBody)) return null;
+        try {
+            Map<String, Object> root =
+                (Map<String, Object>) JSON.deserializeUntyped(rawDashboardBody);
+            String bin = firstBinKey(root);
+            if (bin == null && root.get('applications') instanceof List<Object>) {
+                List<Object> apps = (List<Object>) root.get('applications');
+                if (!apps.isEmpty() && apps[0] instanceof Map<String, Object>) {
+                    bin = firstBinKey((Map<String, Object>) apps[0]);
+                }
+            }
+            if (bin == null && root.get('applicant_file_status') != null) {
+                bin = FILE_STATUS_BIN_MAP.get(
+                    String.valueOf(root.get('applicant_file_status')).trim());
+            }
+            return bin;
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: could not read bin: ' + e.getMessage());
+            return null;
+        }
+    }
+
+    private static String firstBinKey(Map<String, Object> node) {
+        if (node == null) return null;
+        for (String key : BIN_KEYS) {
+            Object v = node.get(key);
+            if (v != null && String.isNotBlank(String.valueOf(v))) return String.valueOf(v).trim();
+        }
+        return null;
+    }
+
+    /** CFRIMS bin → ApplicationStatus (bin name) + Stage (OAP step).
+     *  Draft forms and unknown bins are left untouched. */
+    public static void applyBinTransformation(ApplicationForm form, String binName) {
+        if (form == null || String.isBlank(binName)) return;
+        if (isDraftBin(binName)) {
+            setDraft(form);
+            return;
+        }
+        if (form.Stage == STAGE_DRAFT) return;
+
+        String statusValue = picklistApiName(
+            ApplicationForm.ApplicationStatus.getDescribe(), binName);
+        if (statusValue != null) {
+            form.ApplicationStatus = statusValue;
+        } else {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: bin "' + binName
+                + '" is not an ApplicationStatus picklist value');
+        }
+
+        String binStage = stageForBin(binName);
+        if (binStage != null) {
+            form.Stage = binStage;
+        } else {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: no OAP step mapped for bin "' + binName + '"');
+        }
+    }
+
+    /** OAP Status Code → Stage + ApplicationStatus (same OAP step value).
+     *  Draft forms and unknown codes are left untouched. A bin name, when
+     *  CFRIMS supplies one, is applied afterwards and takes precedence. */
+    public static void applyStatusCodeTransformation(ApplicationForm form, String statusCode) {
+        if (form == null || String.isBlank(statusCode)) return;
+        if (isDraftStatusCode(statusCode)) {
+            setDraft(form);
+            return;
+        }
+        if (form.Stage == STAGE_DRAFT) {
+            if (String.isBlank(form.ApplicationStatus)) {
+                String draftStatus = picklistApiName(
+                    ApplicationForm.ApplicationStatus.getDescribe(), STAGE_DRAFT);
+                if (draftStatus != null) form.ApplicationStatus = draftStatus;
+            }
+            return;
+        }
+        String stage = stageForStatusCode(statusCode);
+        if (stage == null) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: no OAP step mapped for applicant_status "'
+                + statusCode + '"');
+            return;
+        }
+        form.Stage = stage;
+        String statusValue = picklistApiName(
+            ApplicationForm.ApplicationStatus.getDescribe(),
+            APPLICANT_STATUS_MAP.get(statusCode.trim()));
+        if (statusValue != null) form.ApplicationStatus = statusValue;
+    }
+
+    /** applicant_status "0": the OAP1 application was never submitted. */
+    public static Boolean isDraftStatusCode(String statusCode) {
+        return String.isNotBlank(statusCode) && statusCode.trim() == STATUS_CODE_DRAFT;
+    }
+
+    /** Bin "0" / "Draft": the OAP1 application was never submitted. */
+    public static Boolean isDraftBin(String binName) {
+        return String.isNotBlank(binName)
+            && DRAFT_BIN_VALUES.contains(binName.trim().toLowerCase());
+    }
+
+    private static void setDraft(ApplicationForm form) {
+        form.Stage = STAGE_DRAFT;
+        form.SubmissionDate = null;
+        String draftStatus = picklistApiName(
+            ApplicationForm.ApplicationStatus.getDescribe(), STAGE_DRAFT);
+        if (draftStatus != null) form.ApplicationStatus = draftStatus;
+    }
+
+    /** STATUS_CODE_STAGE_MAP lookup, validated against the active Stage picklist. */
+    public static String stageForStatusCode(String statusCode) {
+        if (String.isBlank(statusCode)) return null;
+        String target = STATUS_CODE_STAGE_MAP.get(statusCode.trim());
+        if (target == null) return null;
+        return picklistApiName(ApplicationForm.Stage.getDescribe(), target);
+    }
+
+    /** BIN_STAGE_MAP lookup, validated against the org's active Stage picklist;
+     *  null when the bin is unknown or the target value is not active. */
+    public static String stageForBin(String binName) {
+        if (String.isBlank(binName)) return null;
+        String target = BIN_STAGE_MAP.get(binName.trim().toLowerCase());
+        if (target == null) return null;
+        return picklistApiName(ApplicationForm.Stage.getDescribe(), target);
+    }
+
+    private static String resolvedStageCompleted;
+
+    /** First value of STAGE_COMPLETED_FALLBACKS that is an active entry on
+     *  ApplicationForm.Stage; defaults to STAGE_COMPLETED if none is found. */
+    public static String stageCompleted() {
+        if (resolvedStageCompleted == null) {
+            Schema.DescribeFieldResult dfr = ApplicationForm.Stage.getDescribe();
+            for (String candidate : STAGE_COMPLETED_FALLBACKS) {
+                if (picklistApiName(dfr, candidate) != null) {
+                    resolvedStageCompleted = candidate;
+                    break;
+                }
+            }
+            if (resolvedStageCompleted == null) resolvedStageCompleted = STAGE_COMPLETED;
+        }
+        return resolvedStageCompleted;
+    }
+
+    private static Map<String, Map<String, String>> picklistCache =
+        new Map<String, Map<String, String>>();
+
+    /** Resolves a raw value to an active picklist API name by matching the
+     *  API name or label case-insensitively; null when no entry matches. */
+    @TestVisible
+    private static String picklistApiName(Schema.DescribeFieldResult dfr, String rawValue) {
+        if (dfr == null || String.isBlank(rawValue)) return null;
+        String fieldKey = dfr.getName();
+        Map<String, String> byLower = picklistCache.get(fieldKey);
+        if (byLower == null) {
+            byLower = new Map<String, String>();
+            for (Schema.PicklistEntry pe : dfr.getPicklistValues()) {
+                if (!pe.isActive()) continue;
+                byLower.put(pe.getValue().toLowerCase(), pe.getValue());
+                if (String.isNotBlank(pe.getLabel())) {
+                    byLower.put(pe.getLabel().toLowerCase(), pe.getValue());
+                }
+            }
+            picklistCache.put(fieldKey, byLower);
+        }
+        return byLower.get(rawValue.trim().toLowerCase());
+    }
+
+    private static Map<String, String> educationValuesByLower;
+
+    private static Map<String, String> validEducationApiNames() {
+        if (educationValuesByLower == null) {
+            educationValuesByLower = new Map<String, String>();
+            Schema.DescribeFieldResult dfr =
+                ApplicationForm.OAP_Highest_Level_of_Education__c.getDescribe();
+            for (Schema.PicklistEntry pe : dfr.getPicklistValues()) {
+                if (pe.isActive()) {
+                    educationValuesByLower.put(pe.getValue().toLowerCase(), pe.getValue());
+                }
+            }
+        }
+        return educationValuesByLower;
+    }
+   
+    @TestVisible
+    private static String educationApiName(String rawValue) {
+        if (String.isBlank(rawValue)) return null;
+        Map<String, String> valid = validEducationApiNames();
+        String key = rawValue.trim().toLowerCase();
+        if (valid.containsKey(key)) return valid.get(key);
+        String alias = EDUCATION_ALIAS_MAP.get(key);
+        if (alias != null && valid.containsKey(alias.toLowerCase())) {
+            return valid.get(alias.toLowerCase());
+        }
+        return null;
+    }
+
+    @TestVisible
+    private static String translateSex(String cfrimsValue) {
+        if (String.isBlank(cfrimsValue)) return null;
+        String v = cfrimsValue.trim().toUpperCase();
+        if (v == 'M' || v == 'MALE')     return 'Male';
+        if (v == 'F' || v == 'FEMALE')   return 'Female';
+        if (v == 'I' || v == 'INTERSEX') return 'Intersex';
+        return null;
+    }
+
+    /**
+     * Maps the CFRIMS citizenship_canadian / citizenship_permanent flags to
+     * the Account.OAP_Citizenship__c picklist API name active in this org.
+     */
+    private static final List<String> CITIZEN_VALUE_CANDIDATES = new List<String>{
+        'Canadian Citizen', 'Canadian', 'Citizen', 'Yes'
+    };
+    private static final List<String> PR_VALUE_CANDIDATES = new List<String>{
+        'Permanent Resident', 'Canadian Permanent Resident', 'PR'
+    };
+
+    @TestVisible
+    private static String citizenshipApiName(Boolean isCanadian, Boolean isPermanent) {
+        Schema.DescribeFieldResult dfr = Account.OAP_Citizenship__c.getDescribe();
+        if (isPermanent == true) return resolvePicklistOrText(dfr, PR_VALUE_CANDIDATES);
+        if (isCanadian == true)  return resolvePicklistOrText(dfr, CITIZEN_VALUE_CANDIDATES);
+        return null;
+    }
+
+    /**
+     * Returns the first candidate that is an active picklist value on the
+     * field; for non-picklist (text) fields returns the first non-blank
+     * candidate unchanged.
+     */
+    private static String resolvePicklistOrText(
+            Schema.DescribeFieldResult dfr, List<String> candidates) {
+        if (dfr == null || candidates == null) return null;
+        Boolean isPicklist = dfr.getType() == Schema.DisplayType.PICKLIST
+            || dfr.getType() == Schema.DisplayType.MULTIPICKLIST;
+        for (String c : candidates) {
+            if (String.isBlank(c)) continue;
+            if (!isPicklist) return c;
+            String api = picklistApiName(dfr, c);
+            if (api != null) return api;
+        }
+        return null;
+    }
+
+    private static Date parseDateLenient(String raw) {
+        if (String.isBlank(raw)) return null;
+        try {
+            String datePart = raw.trim().length() >= 10 ? raw.trim().substring(0, 10) : raw.trim();
+            return Date.valueOf(datePart);
+        } catch (Exception e) {
+            System.debug(LoggingLevel.WARN, 'Unparseable date from CFRIMS: ' + raw);
+            return null;
+        }
+    }
+
+    /**
+     * Maps CFRIMS gender values to PersonGenderIdentity picklist API names.
+     * The picklist is restricted: Man = M, Woman = W, Gender Diverse = D.
+     * API names must be assigned — labels fail with
+     * INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST.
+     */
+    @TestVisible
+    private static String translateGender(String cfrimsValue) {
+        if (String.isBlank(cfrimsValue)) return null;
+        String v = cfrimsValue.toUpperCase();
+        if (v == 'M' || v == 'MAN' || v == 'MALE') return 'M';
+        if (v == 'W' || v == 'F' || v == 'WOMAN' || v == 'FEMALE') return 'W';
+        if (v == 'X' || v == 'D' || v == 'GENDER DIVERSE' || v == 'NON-BINARY'
+            || v == 'NONBINARY' || v == 'OTHER' || v == 'DIVERSE') return 'D';
+        return null;
+    }
+
+    /**
+     * Resolves a canonical gender code (M/W/D) to the PersonGenderIdentity API
+     * name active in this org — orgs differ (M/W/D vs Man/Woman/Gender Diverse).
+     */
+    private static final Map<String, String> GENDER_CODE_NAMES = new Map<String, String>{
+        'M' => 'Man', 'W' => 'Woman', 'D' => 'Gender Diverse'
+    };
+
+    @TestVisible
+    private static String genderIdentityApiName(String code) {
+        if (String.isBlank(code)) return null;
+        Schema.DescribeFieldResult dfr = Account.PersonGenderIdentity.getDescribe();
+        String api = picklistApiName(dfr, code);
+        if (api == null && GENDER_CODE_NAMES.containsKey(code)) {
+            api = picklistApiName(dfr, GENDER_CODE_NAMES.get(code));
+        }
+        return api;
+    }
+
+    /**
+     * Resolves a CFRIMS language code (E/F) to the API name active on the
+     * given picklist — orgs differ (E/F vs English/French).
+     */
+    private static final Map<String, String> LANGUAGE_CODE_NAMES = new Map<String, String>{
+        'E' => 'English', 'F' => 'French'
+    };
+
+    @TestVisible
+    private static String languageApiName(Schema.DescribeFieldResult dfr, String rawValue) {
+        if (String.isBlank(rawValue)) return null;
+        String code = rawValue.trim().toUpperCase();
+        if (!LANGUAGE_CODE_NAMES.containsKey(code)) {
+            for (String k : LANGUAGE_CODE_NAMES.keySet()) {
+                if (LANGUAGE_CODE_NAMES.get(k).equalsIgnoreCase(code)) code = k;
+            }
+        }
+        if (!LANGUAGE_CODE_NAMES.containsKey(code)) return null;
+        String api = picklistApiName(dfr, code);
+        if (api == null) api = picklistApiName(dfr, LANGUAGE_CODE_NAMES.get(code));
+        if (api == null) {
+            System.debug(LoggingLevel.WARN,
+                'OAP_Cfrims2DataPullService: no active ' + dfr.getName()
+                + ' value for language "' + rawValue + '"');
+        }
+        return api;
+    }
+
+    private static void applyAddress(Account acct, Map<String, Object> addr, Boolean isMailing) {
+        if (addr == null) return;
+        String street = composeStreetWithFallback(
+            readString(addr, 'street_number'), readString(addr, 'street_name'),
+            readString(addr, 'unit'), readString(addr, 'pobox'), readString(addr, 'civic_number'));
+        String city    = readString(addr, 'city');
+        String state   = OAP_CfrimsAddressHelper.provinceName(readString(addr, 'province_code'));
+        String postal  = readString(addr, 'postal_code');
+        String country = OAP_CfrimsAddressHelper.countryName(readString(addr, 'country_code'));
+        if (isMailing) {
+            if (String.isNotBlank(street))  acct.PersonMailingStreet     = street;
+            if (String.isNotBlank(city))    acct.PersonMailingCity       = city;
+            if (String.isNotBlank(state))   acct.PersonMailingState      = state;
+            if (String.isNotBlank(postal))  acct.PersonMailingPostalCode = postal;
+            if (String.isNotBlank(country)) acct.PersonMailingCountry    = country;
+        } else {
+            if (String.isNotBlank(street))  acct.PersonOtherStreet     = street;
+            if (String.isNotBlank(city))    acct.PersonOtherCity       = city;
+            if (String.isNotBlank(state))   acct.PersonOtherState      = state;
+            if (String.isNotBlank(postal))  acct.PersonOtherPostalCode = postal;
+            if (String.isNotBlank(country)) acct.PersonOtherCountry    = country;
+        }
+    }
+
+    private static String composeStreetWithFallback(
+            String streetNumber, String streetName, String unit,
+            String pobox, String civicNumber) {
+        String composed = OAP_CfrimsAddressFormatter.composeStreet(unit, streetNumber, streetName);
+        if (String.isNotBlank(composed)) return composed;
+        if (String.isNotBlank(pobox))       return 'P.O. Box ' + pobox;
+        if (String.isNotBlank(civicNumber)) return civicNumber;
+        return null;
+    }
+}
