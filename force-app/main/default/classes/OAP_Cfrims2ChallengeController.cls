@@ -779,7 +779,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
         ctx.inCommunity       = Network.getNetworkId() != null;
         // accessToken set by caller (startSession) after successful handshake
         if (v == 'SHOW_OPTIONS') {
-            ctx.availableOptions = ChallengeOptionResolver.resolve(payload);
+            ctx.availableOptions = OAP_ChallengeOptionResolver.resolve(payload);
             ctx.defaultOption    = ctx.availableOptions.isEmpty() ? '5' : ctx.availableOptions[0].code;
             ctx.maskedPhone      = MaskUtil.maskPhone(payload.phone);
             ctx.securityQuestions = payload.security_question;
@@ -827,7 +827,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
     // True when at least one challenge option other than Contact CFRG can
     // actually be presented (flags set AND the data needed to run it exists).
     private static Boolean hasChallengeOptions(CasePayload payload) {
-        for (OAP_Cfrims2AvailableOption o : ChallengeOptionResolver.resolve(payload)) {
+        for (OAP_Cfrims2AvailableOption o : OAP_ChallengeOptionResolver.resolve(payload)) {
             if (o != null && o.code != '5') return true;
         }
         return false;

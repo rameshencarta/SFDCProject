@@ -1,4 +1,4 @@
-public with sharing class ChallengeOptionResolver {
+public with sharing class OAP_ChallengeOptionResolver {
 
     public static List<OAP_Cfrims2AvailableOption> resolve(CasePayload p) {
         List<OAP_Cfrims2AvailableOption> options = new List<OAP_Cfrims2AvailableOption>();
