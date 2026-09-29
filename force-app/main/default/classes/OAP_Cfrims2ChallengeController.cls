@@ -97,21 +97,31 @@ public with sharing class OAP_Cfrims2ChallengeController {
                 }
             }
 
+            // CFRIMS signals re-apply either with opened_for_reapply=1 or with
+            // require_merge=1 + application_completed=0 (file open, no active
+            // application). Capture the raw flag before local overrides touch it.
+            Boolean reapplyByMergeFlags =
+                payload.require_merge == 1 && payload.application_completed == 0;
+
             Boolean accountSubmitted = applyAccountStateOverrides(userEmail, payload);
 
-            // Root-level handshake flag: CFRIMS closed the previous file and
-            // accepts a new application. Same body may arrive via checkMergeState.
-            Boolean reapplyOpen =
-                OAP_Cfrims2DataPullService.parseHandshakeReapplyFlag(handshake.get('rawBody')) == true
+            Boolean reapplyOpen = reapplyByMergeFlags
+                || OAP_Cfrims2DataPullService.parseHandshakeReapplyFlag(handshake.get('rawBody')) == true
                 || OAP_Cfrims2DataPullService.parseHandshakeReapplyFlag(mergeStateBody) == true;
+
+            Boolean routeToReapply = reapplyOpen
+                && (payload.require_merge != 1 || reapplyByMergeFlags);
            
             String verdict;
-            if (payload.require_merge != 1 && reapplyOpen) {
+            if (routeToReapply) {
                 // Re-apply: the closed application stays as history; the
                 // applicant lands on /application with a fresh prefilled Draft.
                 payload.application_completed = 0;
                 verdict = 'NEW_APPLICANT';
-                System.debug('[startSession] opened_for_reapply=1 for ' + userEmail
+                System.debug('[startSession] re-apply for ' + userEmail
+                    + (reapplyByMergeFlags
+                        ? ' (require_merge=1, application_completed=0)'
+                        : ' (opened_for_reapply=1)')
                     + ' — routing to a new Draft application.');
             } else if (payload.require_merge != 1) {
                 
@@ -176,7 +186,7 @@ public with sharing class OAP_Cfrims2ChallengeController {
                     OAP_CfrimsSessionUtil.persistSessionIfHandshaken(
                         acctToSave.Id, sessionToPersist, didHandshake);
                     
-                    if (reapplyOpen && payload.require_merge != 1) {
+                    if (routeToReapply) {
                         Id closedFormId =
                             OAP_Cfrims2DataPullService.cfrimsSyncedFormId(acctToSave.Id);
                         OAP_Cfrims2DataPullService.ensureReapplyDraft(

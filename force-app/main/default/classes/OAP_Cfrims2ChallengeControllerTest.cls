@@ -1280,6 +1280,69 @@ private class OAP_Cfrims2ChallengeControllerTest {
     }
 
     @IsTest
+    static void startSession_requireMergeWithIncompleteApplication_routesToReapply() {
+        Account acc = createPersonAccount(TEST_EMAIL);
+        acc.CFRIMS_Sync_Status__pc      = 'Success';
+        acc.CFRIMS_Applicant_Status__pc = '40';
+        update acc;
+        ApplicationForm closed = createForm(acc.Id);
+        closed.Stage            = 'Submitted';
+        closed.CFRIMS_Synced__c = true;
+        update closed;
+
+        MultiEndpointMock mock = new MultiEndpointMock();
+        mock.handshakeBody = basicHandshakeBody();
+        mock.handshakeBody.put('require_merge', 1);
+        mock.handshakeBody.put('application_completed', 0);
+        mock.handshakeBody.put('opened_for_reapply', 0);
+        mock.handshakeBody.put('option1', 1);
+        mock.handshakeBody.put('phone', '6135551234');
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Test.startTest();
+        OAP_Cfrims2ChallengeController.ChallengeContext ctx =
+            OAP_Cfrims2ChallengeController.startSession(TEST_EMAIL);
+        Test.stopTest();
+
+        Assert.areEqual('NEW_APPLICANT', ctx.verdict,
+            'require_merge=1 with application_completed=0 is a re-apply: the applicant '
+            + 'must be routed to the application page, not the challenge options');
+        Assert.areEqual(false, ctx.applicationCompleted,
+            'Local Account submitted state must not override the CFRIMS re-apply signal');
+        Assert.areEqual(true, ctx.openedForReapply, 'openedForReapply must be exposed to the LWC');
+        Assert.isNotNull(ctx.applicationFormId, 'A Draft form must be provided: '
+            + OAP_Cfrims2DataPullService.lastReapplyDraftError);
+        Assert.areNotEqual(closed.Id, ctx.applicationFormId,
+            'The closed form must not be reopened — a new Draft is expected');
+
+        ApplicationForm history = [SELECT Stage FROM ApplicationForm WHERE Id = :closed.Id];
+        Assert.areEqual('Submitted', history.Stage, 'The closed form must stay as history');
+    }
+
+    @IsTest
+    static void startSession_requireMergeWithCompletedApplication_stillShowsOptions() {
+        createPersonAccount(TEST_EMAIL);
+
+        MultiEndpointMock mock = new MultiEndpointMock();
+        mock.handshakeBody = basicHandshakeBody();
+        mock.handshakeBody.put('require_merge', 1);
+        mock.handshakeBody.put('application_completed', 1);
+        mock.handshakeBody.put('opened_for_reapply', 0);
+        mock.handshakeBody.put('option1', 1);
+        mock.handshakeBody.put('phone', '6135551234');
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Test.startTest();
+        OAP_Cfrims2ChallengeController.ChallengeContext ctx =
+            OAP_Cfrims2ChallengeController.startSession(TEST_EMAIL);
+        Test.stopTest();
+
+        Assert.areEqual('SHOW_OPTIONS', ctx.verdict,
+            'A completed legacy application still requires verification before merge');
+        Assert.areEqual(false, ctx.openedForReapply);
+    }
+
+    @IsTest
     static void startSession_openedForReapply_repeatLogin_reusesDraft() {
         Account acc = createPersonAccount(TEST_EMAIL);
         ApplicationForm closed = createForm(acc.Id);
