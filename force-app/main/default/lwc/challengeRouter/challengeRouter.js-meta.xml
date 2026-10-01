@@ -5,10 +5,15 @@
     <targets>
         <target>lightning__AppPage</target>
         <target>lightning__RecordPage</target>
+        <target>lightning__HomePage</target>
         <target>lightningCommunity__Page</target>
         <target>lightningCommunity__Default</target>
     </targets>
     <targetConfigs>
+        <targetConfig targets="lightning__AppPage,lightning__RecordPage,lightning__HomePage">
+            <property name="userEmail" type="String" label="Applicant Email (override)"
+                      description="Optional. Leave blank to read PersonEmail from the current Account record."/>
+        </targetConfig>
         <targetConfig targets="lightningCommunity__Default">
             <property name="userEmail" type="String" label="Applicant Email (override)"
                       description="Leave blank in the portal — Apex derives the email from the logged-in user."/>

@@ -174,6 +174,10 @@ export default class ChallengeRouter extends NavigationMixin(LightningElement) {
                 this.attemptsRemaining = result.attemptsRemaining;
                 this.showError = true;
             } else {
+                // Attempts exhausted — notify CFRIMS so manual_merge_required
+                // is set for the next login, then show Contact CFRG
+                triggerManualMerge({ userEmail: this.resolvedEmail || this.userEmail || null })
+                    .catch(e => console.warn('[challengeRouter] manualmerge failed:', e));
                 this.cfrgReason = 'failed_attempts';
                 this.currentOption = '5';
             }
@@ -203,7 +207,7 @@ export default class ChallengeRouter extends NavigationMixin(LightningElement) {
         } catch (e) {
             console.warn('[challengeRouter] getLandingRouteOnly failed, using default:', e);
         }
-        this._goTo(route);
+        this._goTo(route, true);
     }
 
     // Detect Experience Cloud site — LWR uses /s/ in path, Aura uses the site
@@ -219,8 +223,10 @@ export default class ChallengeRouter extends NavigationMixin(LightningElement) {
     // Navigates to a site-relative route, but only when the applicant is not
     // already there. assign() to the current URL reloads the page, which would
     // re-run bootstrap and assign again — a reload loop on the very pages this
-    // component is meant to sit on.
-    _goTo(route) {
+    // component is meant to sit on. After a successful verification the page
+    // is reloaded instead, so cached (@AuraEnabled cacheable) page data is
+    // re-read now that the applicant is merged.
+    _goTo(route, reloadIfCurrent) {
         if (!route) return;
 
         if (!this._inCommunity()) {
@@ -235,7 +241,10 @@ export default class ChallengeRouter extends NavigationMixin(LightningElement) {
         }
 
         const currentPath = window.location.pathname.replace(/\/+$/, '');
-        if (currentPath.endsWith(route)) return;
+        if (currentPath.endsWith(route)) {
+            if (reloadIfCurrent) window.location.reload();
+            return;
+        }
 
         const siteBase = window.location.href.split('/').slice(0, 4).join('/');
         window.location.assign(siteBase + route);

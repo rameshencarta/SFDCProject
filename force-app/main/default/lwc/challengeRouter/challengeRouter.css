@@ -1,0 +1,85 @@
+/* ============================================================
+   challengeRouter.css
+   Top-level container for the identity verification flow.
+   Wraps all child option components and handles success/error
+   banners. Keeps itself structurally neutral so child components
+   own their own visual weight.
+   ============================================================ */
+
+:host {
+    display: block;
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+    font-family: 'Salesforce Sans', Arial, sans-serif;
+}
+
+/* ── Loading state ───────────────────────────────────────── */
+/* Center the spinner in available space */
+lightning-spinner {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 160px;
+}
+
+/* ── Success banner ──────────────────────────────────────── */
+/* Overrides the inline slds-box/slds-theme_success to give it
+   a stronger branded feel with a left accent stripe */
+.slds-box.slds-theme_success {
+    background-color: #eaf7ee;
+    border: 1px solid #2e844a;
+    border-left: 4px solid #2e844a;
+    border-radius: 4px;
+    padding: 1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    animation: fadeSlideIn 0.25s ease-out both;
+}
+
+.slds-box.slds-theme_success .slds-text-heading_small {
+    color: #1a4731;
+    font-weight: 600;
+    font-size: 0.9375rem;
+}
+
+/* ── Fatal error banner ──────────────────────────────────── */
+/* slds-notify_alert override — stronger left stripe treatment */
+.slds-notify.slds-notify_alert.slds-theme_error {
+    background-color: #fce9e9;
+    border: 1px solid #c23934;
+    border-left: 4px solid #c23934;
+    border-radius: 4px;
+    padding: 1rem 1.25rem;
+    color: #7b1818;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    animation: fadeSlideIn 0.2s ease-out both;
+}
+
+.slds-notify.slds-notify_alert.slds-theme_error h2 {
+    margin: 0;
+    font-size: inherit;
+    font-weight: inherit;
+}
+
+/* ── Entrance animation ──────────────────────────────────── */
+@keyframes fadeSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Responsive ──────────────────────────────────────────── */
+@media (max-width: 480px) {
+    :host {
+        max-width: 100%;
+        padding: 0 0.5rem;
+    }
+}
