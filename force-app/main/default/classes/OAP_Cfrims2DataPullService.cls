@@ -1151,6 +1151,7 @@ public with sharing class OAP_Cfrims2DataPullService {
             System.debug(LoggingLevel.WARN,
                 'OAP_Cfrims2DataPullService: bin "' + binName
                 + '" is not an ApplicationStatus picklist value');
+            ensureNonDraftApplicationStatus(form);
         }
 
         String binStage = stageForBin(binName);
@@ -1190,7 +1191,28 @@ public with sharing class OAP_Cfrims2DataPullService {
         String statusValue = picklistApiName(
             ApplicationForm.ApplicationStatus.getDescribe(),
             APPLICANT_STATUS_MAP.get(statusCode.trim()));
-        if (statusValue != null) form.ApplicationStatus = statusValue;
+        if (statusValue != null) {
+            form.ApplicationStatus = statusValue;
+        } else {
+            ensureNonDraftApplicationStatus(form);
+        }
+    }
+
+    /** A form whose Stage is past Draft must never report ApplicationStatus
+     *  Draft: when the org's picklist lacks the mapped step/bin value, fall
+     *  back to the Submitted value so the portal treats the form as submitted. */
+    @TestVisible
+    private static void ensureNonDraftApplicationStatus(ApplicationForm form) {
+        if (form.Stage == STAGE_DRAFT) return;
+        String draftStatus = picklistApiName(
+            ApplicationForm.ApplicationStatus.getDescribe(), STAGE_DRAFT);
+        if (String.isNotBlank(form.ApplicationStatus)
+                && form.ApplicationStatus != draftStatus) {
+            return;
+        }
+        String submitted = picklistApiName(
+            ApplicationForm.ApplicationStatus.getDescribe(), STAGE_COMPLETED);
+        if (submitted != null) form.ApplicationStatus = submitted;
     }
 
     /** applicant_status "0": the OAP1 application was never submitted. */

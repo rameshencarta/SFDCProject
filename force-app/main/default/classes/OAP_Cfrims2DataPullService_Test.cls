@@ -720,6 +720,28 @@ private class OAP_Cfrims2DataPullService_Test {
   }
 
   @isTest
+  static void ensureNonDraftApplicationStatus_neverLeavesDraftOnSubmittedStage() {
+    ApplicationForm advanced = new ApplicationForm(
+      Stage = 'Submitted', ApplicationStatus = 'Draft');
+    OAP_Cfrims2DataPullService.ensureNonDraftApplicationStatus(advanced);
+    System.assertEquals('Submitted', advanced.ApplicationStatus,
+      'A non-Draft Stage with a Draft ApplicationStatus falls back to Submitted');
+
+    ApplicationForm blank = new ApplicationForm(Stage = 'Submitted');
+    OAP_Cfrims2DataPullService.ensureNonDraftApplicationStatus(blank);
+    System.assertEquals('Submitted', blank.ApplicationStatus);
+
+    ApplicationForm draft = new ApplicationForm(Stage = 'Draft', ApplicationStatus = 'Draft');
+    OAP_Cfrims2DataPullService.ensureNonDraftApplicationStatus(draft);
+    System.assertEquals('Draft', draft.ApplicationStatus, 'Draft forms are untouched');
+
+    ApplicationForm bin = new ApplicationForm(Stage = 'Submitted', ApplicationStatus = 'Draft');
+    OAP_Cfrims2DataPullService.applyBinTransformation(bin, 'No Such Bin');
+    System.assertEquals('Submitted', bin.ApplicationStatus,
+      'Unknown bin on a submitted form must not leave ApplicationStatus Draft');
+  }
+
+  @isTest
   static void applyBinTransformation_skipsDraftAndUnknownBin() {
     ApplicationForm draft = new ApplicationForm(Stage = 'Draft', ApplicationStatus = 'Draft');
     OAP_Cfrims2DataPullService.applyBinTransformation(draft, 'Initial Processing');
