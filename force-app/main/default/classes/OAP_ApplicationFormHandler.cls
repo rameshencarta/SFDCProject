@@ -6,8 +6,29 @@
  */
 public class OAP_ApplicationFormHandler {
 
+    private static final String STATUS_SUCCESS = 'SUCCESS';
+    private static final String STATUS_FAILED = 'FAILED';
+
+    private static final String ERROR_MISSING_APPLICATION_FORM_ID = 'MISSING_APPLICATION_FORM_ID';
+    private static final String ERROR_MISSING_ACCOUNT_ID = 'MISSING_ACCOUNT_ID';
+    private static final String ERROR_SUBMISSION_FAILED = 'SUBMISSION_FAILED';
+    private static final String ERROR_MISSING_ADDRESS = 'MISSING_ADDRESS';
+    
+    public class SubmissionResult {
+        public Boolean success;
+        public String status;
+        public String message;
+        public String errorCode;
+
+        public SubmissionResult() {
+            success = false;
+            status = STATUS_FAILED;
+        }
+    }
+
     // Recursive guard — prevents infinite loop when Stage ApplicationStatus sync re-fires trigger
     private static Boolean isSyncingStatus = false;
+
     @TestVisible
     private static Set<String> activeApplicationStatusValues;
 
@@ -95,6 +116,7 @@ public class OAP_ApplicationFormHandler {
                     System.debug('[afterUpdate] Synced ApplicationStatus = Stage for '
                         + toSync.size() + ' record(s)');
                 }
+                
             } catch (Exception e) {
                 // Belt and braces: the mirror is bookkeeping and must never be the
                 // reason an ApplicationForm update fails.
@@ -109,8 +131,10 @@ public class OAP_ApplicationFormHandler {
         // CFRIMS submission — fires when Stage changes TO 'Submitted'
         Set<Id> submittedFormIds = new Set<Id>();
         for (ApplicationForm aform : appFormNew) {
-            if (aform.Stage == 'Submitted'
-                && aform.Stage != appFormOldMap.get(aform.Id).Stage) {
+
+            ApplicationForm oldForm = appFormOldMap.get(aform.Id);
+            if (aform.ApplicationStatus == 'Submitted'
+                && oldForm.ApplicationStatus != 'Submitted') {
                 submittedFormIds.add(aform.Id);
             }
         }
@@ -125,9 +149,9 @@ public class OAP_ApplicationFormHandler {
             return;
         }
 
-        for (Id formId : submittedFormIds) {
+        /*for (Id formId : submittedFormIds) {
             sendApplicationToCFRIMS(formId);
-        }
+        }*/
     }
 
     @TestVisible
@@ -149,10 +173,11 @@ public class OAP_ApplicationFormHandler {
         if (needsKey.isEmpty()) return;
 
         for (Account a : needsKey) {
-            a.CFRIMS_User_Identifier__pc = generateSfGuid();
+            a.CFRIMS_User_Identifier__pc = OAP_Utils.generateSfGuid();
         }
         try {
             update needsKey;
+            
         } catch (Exception e) {
             System.debug(LoggingLevel.WARN,
                 'OAP_ApplicationFormHandler.ensureUserKeysAreSet: ' + e.getMessage());
@@ -162,11 +187,19 @@ public class OAP_ApplicationFormHandler {
     @TestVisible private static final Integer MAX_SUBMIT_ATTEMPTS  = 3;
     @TestVisible private static final Integer RETRY_DELAY_MINUTES  = 2;
 
-    public class SubmissionResult {
-        public Boolean success;
-        public String status;
-        public String message;
-        public String errorCode;
+    public static SubmissionResult submitApplicationFromOmni(Id applicationFormId){
+        SubmissionResult result = new SubmissionResult();
+
+        if(applicationFormId == null){
+            result.success = false;
+            result.status = STATUS_FAILED;
+            result.message = 'Application Form Id is required';
+            result.errorCode = ERROR_MISSING_APPLICATION_FORM_ID;
+            return result;
+        }
+
+           return submitWithAttempt(applicationFormId, 1);
+           
     }
 
     @future(callout=true)
@@ -349,7 +382,7 @@ public class OAP_ApplicationFormHandler {
         if (String.isBlank(userIdentifier)) {
             Map<String, String> stored = Cfrims2HandshakeIdStore.lookup(email);
             String storedId = stored.get('userIdentifier');
-            userIdentifier = String.isNotBlank(storedId) ? storedId : generateSfGuid();
+            userIdentifier = String.isNotBlank(storedId) ? storedId : OAP_Utils.generateSfGuid();
             System.debug('OAP_ApplicationFormHandler: userIdentifier resolved: '
                 + userIdentifier);
         }
@@ -384,7 +417,8 @@ public class OAP_ApplicationFormHandler {
             // v11 fix (Aug 2026): if no clientSessionId is stored yet (exactly
            
             if (String.isBlank(tr.clientSessionId)) {
-                tr.clientSessionId = 'SF_SESS_' + String.valueOf(Crypto.getRandomLong());
+                tr.clientSessionId = OAP_Utils.generateSessGuid();
+				
             }
             Map<String, String> hs = OAP_CFRIMS_ApiClient.performHandshake(
                 email, userIdentifier, tr.clientSessionId);
@@ -446,25 +480,17 @@ public class OAP_ApplicationFormHandler {
                 'prev_service_qualified_mos' => nullToBlank(appForm.OAP_Previously_Qualified_CAF_Occupation__c),
                 'cadets'                     => cadetsPayload
             });
-            String prNumber = String.isNotBlank(appForm.OAP_Permanent_Resident_Number__c)
-                ? appForm.OAP_Permanent_Resident_Number__c
-                : appForm.Account.Permanent_Resident_Number__c;
-            Date prDate = appForm.OAP_Date_Canadian_PR_Granted__c != null
-                ? appForm.OAP_Date_Canadian_PR_Granted__c
-                : appForm.Account.Permanent_Resident_Effective_Date__c;
-            Integer isPr = (isPermanentResident(appForm.Account.OAP_Citizenship__c) == 1
-                || String.isNotBlank(prNumber) || prDate != null) ? 1 : 0;
-
             applicant.put('citizenship', new Map<String, Object>{
                 // Integers per new spec: 1 = yes, 0 = no
                 'citizenship_canadian'              => isCanadianCitizen(appForm.Account.OAP_Citizenship__c),
-                'citizenship_permanent'             => isPr,
+                'citizenship_permanent'             => (String.isNotBlank(appForm.Account.Permanent_Resident_Number__c)
+                                                        || appForm.Account.Permanent_Resident_Effective_Date__c != null) ? 1 : 0,
                 'citizenship_foreign'               => boolToInt(appForm.OAP_Citizen_of_Country_other_than_Canada__c),
                 'citizenship_date'                  => formatDate(appForm.OAP_Date_Canadian_Citizenship_Granted__c),
-                'permanent_resident_date'           => formatDate(prDate),
-                'date_permanent_resident_granted'   => formatDate(prDate),
-                'date_entry_in_Canada'              => formatDate(appForm.OAP_Date_Entry_In_Canada__c),
-                'permanent_resident_number'         => nullToBlank(prNumber)
+                'permanent_resident_date'           => formatDate(appForm.Account.Permanent_Resident_Effective_Date__c),
+                'date_permanent_resident_granted'   => formatDate(appForm.Account.Permanent_Resident_Effective_Date__c),
+                'date_entry_in_Canada'              => formatDate(appForm.Account.OAP_Date_of_Entry_into_Canada__c),
+                'permanent_resident_number'         => nullToBlank(appForm.Account.Permanent_Resident_Number__c)
             });
 
             String homeProvinceCode = OAP_CfrimsAddressHelper.provinceCode(appForm.Account.PersonOtherState);
@@ -621,12 +647,8 @@ public class OAP_ApplicationFormHandler {
         return applicant;
     }
 
-    //New wrapper for OmniStudio
-    public static SubmissionResult submitApplicationFromOmni(Id applicationFormId){
-        return submitWithAttempt(applicationFormId, 1);        
-    }
-
     private static SubmissionResult submitWithAttempt(Id applicationFormId, Integer attempt) {
+        SubmissionResult result = new SubmissionResult();
         String LANG = 'E';
         Account acct = new Account();
         ApplicationForm appForm = new ApplicationForm();
@@ -648,7 +670,6 @@ public class OAP_ApplicationFormHandler {
                        OAP_Self_Identify_Indigenous_Person__c,
                        OAP_Self_Identify_Visible_Minority__c,
                        OAP_Citizen_of_Country_other_than_Canada__c,
-                       OAP_Date_Canadian_PR_Granted__c,
                        OAP_Criminal_Record_Active_Obligations__c,
                        OAP_Prior_Service_in_Foreign_Military__c,
                        OAP_Born_Outside_Canada__c,
@@ -657,6 +678,7 @@ public class OAP_ApplicationFormHandler {
                        OAP_Immediate_Family_Living_Abroad__c,
                        OAP_Employment_Type_Preference__c,
                        OAP_Preferred_Branch_Military__c,
+                       CFRIMS_Submission_Status__c,
                        Account.FirstName,
                        Account.LastName,
                        Account.PersonBirthdate,
@@ -687,19 +709,18 @@ public class OAP_ApplicationFormHandler {
                        Account.PersonOtherPostalCode,
                        Account.PersonOtherCountry,
                        Account.OAP_Citizenship__c,
-                       Account.Permanent_Resident_Number__c,
-                       Account.Permanent_Resident_Effective_Date__c,
                        Account.OAP_Birth_City__c,
                        Account.OAP_Birth_Province_State__c,
                        Account.OAP_Birth_Country__c,
+                       Account.Permanent_Resident_Number__c,
+			           Account.Permanent_Resident_Effective_Date__c,
+			           Account.OAP_Date_of_Entry_into_Canada__c,
                        OAP_Previous_Service_Number__c,
                        OAP_Interested_Reapply_Prior_Role__c,
                        OAP_Date_Canadian_Citizenship_Granted__c,
-                       OAP_Date_Entry_In_Canada__c,
                        OAP_Reserve_Unit_of_Interest__c,
                        OAP_ISP_Options__c,
                        OAP_Unit_Recognition_Code__c,
-                       OAP_Permanent_Resident_Number__c,
                        OAP_Consent_Application_Disclosure__c,
                        OAP_Consent_Conditional_Enrolment_Offer__c,
                        Account.OAP_Primary_Phone_Country_Code__c,
@@ -713,14 +734,12 @@ public class OAP_ApplicationFormHandler {
 
                 System.debug('OAP_ApplicationFormHandler: AccountId is null on form '
                     + applicationFormId);
-
-                SubmissionResult result = new SubmissionResult();
                 result.success = false;
-                result.status = 'FAILED';
-                result.message = 'Application Form has no Account';
-                result.errorCode = 'NO_ACCOUNT';
-
+                result.status = STATUS_FAILED;
+                result.message = 'Application Form AccountId is missing.';
+                result.errorCode = ERROR_MISSING_ACCOUNT_ID;
                 return result;
+                
             }            
 
             acct.Id = appForm.AccountId;
@@ -728,12 +747,10 @@ public class OAP_ApplicationFormHandler {
             // Resubmit guard  
            
             if (hasAlreadySynced(applicationFormId)) {
-                SubmissionResult result = new SubmissionResult();
                 result.success = true;
-                result.status = 'SUCCESS';
-                result.message = 'Application already submitted';
-                result.errorCode = 'null';
-
+                result.status = STATUS_SUCCESS;
+                result.message = 'Application already submitted.';
+                result.errorCode = null;
                 return result;
             }            
 
@@ -754,15 +771,15 @@ public class OAP_ApplicationFormHandler {
                 || String.isNotBlank(appForm.Account.PersonOtherCity);
             if (!hasMailing && !hasHome) {
                 acct.CFRIMS_Sync_Status__pc = 'Failed';
+                //appForm.CFRIMS_Submission_Status__c = 'Failed';
                 if (acct.Id != null) update acct;
 
-                SubmissionResult result = new SubmissionResult();
                 result.success = false;
-                result.status = 'FAILED';
-                result.message = 'Mailing or home address is required';
-                result.errorCode = 'MISSING_ADDRESS';
-
+                result.status = STATUS_FAILED;
+                result.message = 'Mailing or home address is required.';
+                result.errorCode = ERROR_MISSING_ADDRESS;
                 return result;
+                                
             }
 
             String email = appForm.Account.PersonEmail;
@@ -822,9 +839,6 @@ public class OAP_ApplicationFormHandler {
             };
             HttpResponse res = OAP_HttpCalloutGateway.send(req);
 
-            System.debug(LoggingLevel.Error, 'SFRIMS Submit Status=' +res.getStatusCode());
-            System.debug(LoggingLevel.Error, 'CFRIMS Submit Body=' +res.getBody());
-
             acct.user_key__pc               = userKey;
             acct.CFRIMS_User_Identifier__pc = resolvedUserIdentifier;
             // Persist the fallback-handshake token (v6) so startSession's
@@ -843,14 +857,16 @@ public class OAP_ApplicationFormHandler {
             //   {"success": 1, "error": "200", "Message": "Application submitted successfully"}
             // Primary success indicator: success = 1 (integer)
             // Note: "Message" has capital M, "error" is "200" string on success
+            //Boolean submitSucceeded = false;
             Boolean submitSucceeded = (res.getStatusCode() == 200)
                 && (res.getBody().contains('"success":1')
                     || res.getBody().contains('"success": 1'));
+                    
             if (submitSucceeded) {
                 acct.CFRIMS_Sync_Status__pc = 'Success';
-
-                appForm.Stage = 'Submitted';
+                appForm.CFRIMS_Submission_Status__c = 'Success';
                 appForm.ApplicationStatus = 'Submitted';
+                appForm.Stage = 'Submitted';
 
                 CFRIMS_Logger.CFRIMSlogAPI(
                     'submitApplicant', config.API_Base_URL__c + '/Applicants/submit',
@@ -859,7 +875,7 @@ public class OAP_ApplicationFormHandler {
                     String.valueOf(appForm.AccountId), String.valueOf(appForm.Id));
             } else {
                 acct.CFRIMS_Sync_Status__pc = 'Failed';
-                appForm.ApplicationStatus = 'Pending Submission';
+                appForm.CFRIMS_Submission_Status__c = 'Failed';
                 CFRIMS_Logger.CFRIMSlogAPI(
                     'submitApplicant', config.API_Base_URL__c + '/Applicants/submit',
                     'POST', applicantJson, res.getBody(),
@@ -890,11 +906,8 @@ public class OAP_ApplicationFormHandler {
             catch (Exception fpEx) { System.debug('[sendApplicationToCFRIMS] flushPersist: ' + fpEx.getMessage()); }
             try { CFRIMS_Logger.flush(); }
             catch (Exception logEx) { System.debug('[sendApplicationToCFRIMS] Logger.flush: ' + logEx.getMessage()); }
-            update acct;   
-
-            if(submitSucceeded || appForm.ApplicationStatus == 'Pending Submission') {
-                update appForm;
-            }
+            update acct; 
+            update appForm; 
 
             if (submitSucceeded) {
                 
@@ -904,7 +917,7 @@ public class OAP_ApplicationFormHandler {
                     ));
                 }
             }
-
+            
         } catch (Exception e) {
             String msg = e.getMessage() == null ? '' : e.getMessage();
             Boolean isDuplicateEmail =
@@ -916,7 +929,8 @@ public class OAP_ApplicationFormHandler {
                 acct.CFRIMS_Sync_Status__pc = 'Already Registered';
             } else {
                 acct.CFRIMS_Sync_Status__pc = 'Failed';
-                appForm.ApplicationStatus = 'Pending Submission';
+                //appForm.CFRIMS_Submission_Status__c = 'Failed';
+                
             }
 
             // Flush before DML in catch block — wrapped independently
@@ -925,11 +939,7 @@ public class OAP_ApplicationFormHandler {
             try { CFRIMS_Logger.flush(); }
             catch (Exception logEx) { System.debug('[sendApplicationToCFRIMS] catch Logger.flush: ' + logEx.getMessage()); }
 
-            if (acct.Id != null) update acct;
-
-            if(appForm.ApplicationStatus == 'Pending Submission'){
-                update appForm;
-            }
+            if (acct.Id != null) update acct;            
 
             CFRIMS_Logger.CFRIMSlogAPI(
                 'submitApplicant', '', 'POST', '', msg,
@@ -941,15 +951,19 @@ public class OAP_ApplicationFormHandler {
             CFRIMS_Logger.flush();
         }
 
-        SubmissionResult result = new SubmissionResult();
-                result.success = (acct.CFRIMS_Sync_Status__pc == 'Success');
-                result.status = result.success ? 'SUCCESS' : 'FAILED';
-                result.message = result.success
-                    ? 'Submission completed successfully'
-                    : 'Submission failed';
-                result.errorCode = result.success ? null : 'SUBMISSION_FAILED';
+        result.success = (acct.CFRIMS_Sync_Status__pc == 'Success');
+        result.status = result.success ? STATUS_SUCCESS : STATUS_FAILED;
 
-                return result;
+        if(result.success){
+            result.message = 'Submission completed successfully';
+            result.errorCode = null;
+        } else {
+            result.message = 'Submission failed';
+            result.errorCode = ERROR_SUBMISSION_FAILED;
+        }
+
+        return result;
+        
     }
 
     @TestVisible private static String translateEmploymentType(String sfValue) {
@@ -1021,15 +1035,7 @@ public class OAP_ApplicationFormHandler {
         if (String.isBlank(s)) return 0;
         String v = s.trim().toLowerCase();
         if (v == '1' || v == 'true' || v == 'yes' || v == 'y') return 1;
-        if (isPermanentResident(s) == 1) return 0;
         return v.contains('canadian') ? 1 : 0;
-    }
-    // Permanent-resident indicator from the Account.OAP_Citizenship__c
-    // citizenship-status picklist (e.g. "Permanent Resident").
-    @TestVisible private static Integer isPermanentResident(String s) {
-        if (String.isBlank(s)) return 0;
-        String v = s.trim().toLowerCase();
-        return (v.contains('permanent') || v == 'pr') ? 1 : 0;
     }
     /**
      * Mailing is "same as home" when the applicant supplied no distinct
@@ -1092,10 +1098,7 @@ public class OAP_ApplicationFormHandler {
     private static String digitsOnly(String s) {
         return String.isBlank(s) ? '' : s.replaceAll('[^0-9]', '');
     }
-    private static String generateSfGuid() {
-        return 'SF-GUID-' + String.valueOf(Math.abs(Crypto.getRandomLong()));
-    }
-
+    
     // Token expiry logic is centralised in OAP_CfrimsSessionUtil.
     @TestVisible private static Boolean isTokenExpired(String jwt) {
         return OAP_CfrimsSessionUtil.isTokenExpired(jwt);
@@ -1138,11 +1141,6 @@ public class OAP_ApplicationFormHandler {
             + country + '" — sending blank Country_code. Add this value to '
             + 'COUNTRY_NAME_TO_ISO2 if it is a legitimate country label/alias.');
         return '';
-    }
-
-    // ── toDialCode — phone region as a calling code per CFRIMS spec    
-    @TestVisible private static String toDialCode(String rawPhoneRegionValue) {
-        return OAP_PhoneRegionUtil.extractDialCode(rawPhoneRegionValue);
     }
 
     // ── Lookup tables for toIso2Country() ────────────────────────────────
