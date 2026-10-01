@@ -316,6 +316,13 @@ public class OAP_ApplicationFormHandler {
     }
 
     @TestVisible
+    private static String padUnitCode(String code) {
+        if (String.isBlank(code)) return '';
+        String trimmed = code.trim();
+        return trimmed.isNumeric() ? trimmed.leftPad(5, '0') : trimmed;
+    }
+
+    @TestVisible
     private static List<Map<String, Object>> buildIspList(String ispOptions) {
         // Indigenous Summer Program array (v7.3). Confirmed shape per CFRIMS        
         // Up to 3 programs, ordered by selection sequence.
@@ -586,7 +593,9 @@ public class OAP_ApplicationFormHandler {
                 // null when empty per CFRIMS samples (ISP-only applicants have
                 // mos:null, non-Indigenous have ISP:null).
                 'ISP'                                => ispList.isEmpty() ? null : (Object) ispList,
-                'mos'                                => mosList.isEmpty() ? null : (Object) mosList
+                'mos'                                => mosList.isEmpty() ? null : (Object) mosList,
+                'processing_unit'                    => '',
+                'reserve_unit'                       => padUnitCode(appForm.OAP_Reserve_Unit_of_Interest__c)
             });
 
             // application — consent, dates and signature 
